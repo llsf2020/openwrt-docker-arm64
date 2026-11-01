@@ -26,7 +26,9 @@ env:
   DL: https://downloads.immortalwrt.org/releases/25.12.2/targets/armsr/armv8
   SDK: immortalwrt-sdk-25.12.2-armsr-armv8_gcc-14.3.0_musl.Linux-x86_64
   SDK_SHA256: 8e2891ff99f12d1a9b7164c62064c3d47a1e766e04c3ad3f9f3d0189731f8c7d
-  IB: immortalwrt-imagebuilder-25.12.2-armsr-armv8.Linux-x86_64
+  # not IB: make reads that from the environment, and the ImageBuilder
+  # recipes break when it is set
+  IB_NAME: immortalwrt-imagebuilder-25.12.2-armsr-armv8.Linux-x86_64
   IB_SHA256: a8c1ffda15e7d79854ff4afd711da3e7224e84945c79f03d80fc6cf48727cb9c
   IMAGE: ghcr.io/${{ github.repository }}
 
@@ -132,10 +134,10 @@ jobs:
       - name: Download ImageBuilder
         run: |
           set -euo pipefail
-          curl -fsSL -o ib.tar.zst "${DL}/${IB}.tar.zst"
+          curl -fsSL -o ib.tar.zst "${DL}/${IB_NAME}.tar.zst"
           echo "${IB_SHA256}  ib.tar.zst" | sha256sum -c -
           tar --zstd -xf ib.tar.zst
-          mv "${IB}" ib
+          mv "${IB_NAME}" ib
           # only the rootfs tarball is needed
           sed -i -E 's/^(CONFIG_TARGET_ROOTFS_(EXT4FS|SQUASHFS|CPIOGZ|ISO)|CONFIG_GRUB_EFI_IMAGES|CONFIG_EFI_IMAGES)=y/# \1 is not set/' ib/.config
           grep -q '^CONFIG_TARGET_ROOTFS_TARGZ=y' ib/.config || echo 'CONFIG_TARGET_ROOTFS_TARGZ=y' >> ib/.config
