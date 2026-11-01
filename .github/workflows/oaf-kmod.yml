@@ -1,0 +1,139 @@
+name: oaf-kmod
+
+# Build oaf.ko (OpenAppFilter + netns patch) for the docker host's kernel.
+# The module is loaded on the host and attached to the OpenWrt container's
+# network namespace (see host/).
+#
+# The kernel is described by repository secrets, so it does not appear in the
+# repository or in the (masked) logs:
+#   KERNEL_REPO          GitHub repo whose releases hold the kernel and toolchain
+#   KERNEL_TAG           release tag with <KERNEL_VERSION>.tar.gz
+#                        (boot/dtb/modules/header-<version><localversion>.tar.gz + sha256sums)
+#   KERNEL_VERSION       e.g. 6.1.0
+#   KERNEL_LOCALVERSION  the part of `uname -r` after the version, e.g. -custom
+#   KERNEL_SHA256        sha256 of <KERNEL_VERSION>.tar.gz
+#   TOOLCHAIN_TAG        release tag with the toolchain below
+# The artifact contains the module (its vermagic names the kernel) and is kept
+# for one day only.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/oaf-kmod.yml"
+      - "oaf-netns/**"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: oaf-kmod
+  cancel-in-progress: true
+
+env:
+  # must be the compiler the kernel was built with (CONFIG_CC_VERSION_TEXT is checked)
+  TOOLCHAIN: arm-gnu-toolchain-15.3.rel1-aarch64-aarch64-none-linux-gnu
+  TOOLCHAIN_SHA256: 8020be7aa1013704756158400cb5ba438d6f09b2909795d13617b9e7bac53286
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04-arm
+    env:
+      KERNEL_REPO: ${{ secrets.KERNEL_REPO }}
+      KERNEL_TAG: ${{ secrets.KERNEL_TAG }}
+      KERNEL_VERSION: ${{ secrets.KERNEL_VERSION }}
+      KERNEL_LOCALVERSION: ${{ secrets.KERNEL_LOCALVERSION }}
+      KERNEL_SHA256: ${{ secrets.KERNEL_SHA256 }}
+      TOOLCHAIN_TAG: ${{ secrets.TOOLCHAIN_TAG }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Check secrets
+        run: |
+          for v in KERNEL_REPO KERNEL_TAG KERNEL_VERSION KERNEL_LOCALVERSION KERNEL_SHA256 TOOLCHAIN_TAG; do
+            [ -n "$(printenv "$v")" ] || { echo "::error::secret $v is not set"; exit 1; }
+          done
+
+      - name: Download kernel headers
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          release="${KERNEL_VERSION}${KERNEL_LOCALVERSION}"
+          mkdir -p dl && cd dl
+          gh release download "$KERNEL_TAG" -R "$KERNEL_REPO" -p "${KERNEL_VERSION}.tar.gz"
+          echo "${KERNEL_SHA256}  ${KERNEL_VERSION}.tar.gz" | sha256sum -c -
+          tar -xzf "${KERNEL_VERSION}.tar.gz"
+          cd "${KERNEL_VERSION}"
+          grep "header-${release}.tar.gz" sha256sums | sha256sum -c -
+          mkdir -p "$GITHUB_WORKSPACE/headers"
+          tar -xzf "header-${release}.tar.gz" -C "$GITHUB_WORKSPACE/headers"
+          grep -q "\"${release}\"" "$GITHUB_WORKSPACE/headers/include/generated/utsrelease.h"
+
+      - name: Download toolchain
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          cd dl
+          gh release download "$TOOLCHAIN_TAG" -R "$KERNEL_REPO" -p "${TOOLCHAIN}.tar.xz"
+          echo "${TOOLCHAIN_SHA256}  ${TOOLCHAIN}.tar.xz" | sha256sum -c -
+          tar -xJf "${TOOLCHAIN}.tar.xz" -C "$GITHUB_WORKSPACE"
+          want="$(sed -n 's/^CONFIG_CC_VERSION_TEXT=//p' "$GITHUB_WORKSPACE/headers/include/config/auto.conf" | tr -d '"')"
+          have="$("$GITHUB_WORKSPACE/${TOOLCHAIN}/bin/aarch64-none-linux-gnu-gcc" --version | head -n1)"
+          echo "kernel built with: $want"
+          echo "toolchain:         $have"
+          [ "$want" = "$have" ] || { echo "::error::toolchain does not match the kernel compiler"; exit 1; }
+
+      - name: Fetch OpenAppFilter and apply netns patch
+        run: |
+          set -euo pipefail
+          commit="$(cat oaf-netns/UPSTREAM_COMMIT)"
+          git clone https://github.com/destan19/OpenAppFilter.git oaf-src
+          git -C oaf-src checkout -q "$commit"
+          [ "$(git -C oaf-src rev-parse HEAD)" = "$commit" ]
+          git -C oaf-src apply --verbose "$GITHUB_WORKSPACE"/oaf-netns/*.patch
+
+      - name: Build oaf.ko
+        run: |
+          set -euo pipefail
+          # same relaxed warnings as upstream oaf/Makefile
+          KCFLAGS="-Wno-error=missing-prototypes -Wno-error=strict-prototypes \
+            -Wno-error=missing-declarations -Wno-error=unused-variable \
+            -Wno-error=declaration-after-statement -Wno-error=implicit-fallthrough \
+            -Wno-error=missing-braces -Wno-error=parentheses -Wno-error=format \
+            -Wno-frame-larger-than"
+          make -C "$GITHUB_WORKSPACE/headers" \
+            ARCH=arm64 \
+            CROSS_COMPILE="$GITHUB_WORKSPACE/${TOOLCHAIN}/bin/aarch64-none-linux-gnu-" \
+            M="$GITHUB_WORKSPACE/oaf-src/oaf/src" \
+            KCFLAGS="$KCFLAGS" \
+            modules > build.log 2>&1 || { tail -n 50 build.log; exit 1; }
+          echo "warnings: $(grep -c 'warning:' build.log || true)"
+          ko=oaf-src/oaf/src/oaf.ko
+          test -s "$ko"
+          modinfo "$ko" > modinfo.txt
+          grep -q "^vermagic: *${KERNEL_VERSION}${KERNEL_LOCALVERSION} " modinfo.txt || { echo "::error::vermagic mismatch"; exit 1; }
+          grep -q "^parm: *netns_pid" modinfo.txt || { echo "::error::netns patch missing"; exit 1; }
+
+      - name: Collect artifact
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          cp oaf-src/oaf/src/oaf.ko modinfo.txt build.log out/
+          cp -r host out/
+          git -C oaf-src rev-parse HEAD > out/UPSTREAM_COMMIT
+          (cd out && sha256sum oaf.ko > oaf.ko.sha256)
+          {
+            echo "### oaf.ko"
+            echo '```'
+            cat out/oaf.ko.sha256
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: oaf-kmod
+          path: out/
+          retention-days: 1

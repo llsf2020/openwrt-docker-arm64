@@ -1,0 +1,200 @@
+name: openwrt-image
+
+# ImmortalWrt rootfs for an arm64 OpenWrt docker container, pushed to
+# ghcr.io. Packages missing from the feeds (openwrt/sources.txt) are built
+# with the SDK, everything is assembled with the ImageBuilder.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/openwrt-image.yml"
+      - "openwrt/**"
+      - "docker/**"
+      - "oaf-netns/**"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: openwrt-image
+  cancel-in-progress: true
+
+env:
+  RELEASE: "25.12.2"
+  DL: https://downloads.immortalwrt.org/releases/25.12.2/targets/armsr/armv8
+  SDK: immortalwrt-sdk-25.12.2-armsr-armv8_gcc-14.3.0_musl.Linux-x86_64
+  SDK_SHA256: 8e2891ff99f12d1a9b7164c62064c3d47a1e766e04c3ad3f9f3d0189731f8c7d
+  IB: immortalwrt-imagebuilder-25.12.2-armsr-armv8.Linux-x86_64
+  IB_SHA256: a8c1ffda15e7d79854ff4afd711da3e7224e84945c79f03d80fc6cf48727cb9c
+  IMAGE: ghcr.io/${{ github.repository }}
+
+jobs:
+  packages:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq build-essential clang flex bison g++ gawk gcc-multilib \
+            gettext git libncurses-dev libssl-dev python3-setuptools rsync swig unzip zlib1g-dev \
+            file wget zstd
+
+      - name: Download SDK
+        run: |
+          set -euo pipefail
+          curl -fsSL -o sdk.tar.zst "${DL}/${SDK}.tar.zst"
+          echo "${SDK_SHA256}  sdk.tar.zst" | sha256sum -c -
+          tar --zstd -xf sdk.tar.zst
+          mv "${SDK}" sdk
+
+      - name: Feeds
+        working-directory: sdk
+        run: |
+          set -euo pipefail
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+          # the feed copies would be built instead of those from
+          # openwrt/sources.txt: appfilter is unpatched and needs kmod-oaf,
+          # mosdns has an init script that conflicts with luci-app-mosdns
+          ./scripts/feeds uninstall open-app-filter mosdns
+          [ ! -e package/feeds/packages/open-app-filter ]
+          [ ! -e package/feeds/packages/mosdns ]
+
+      - name: Fetch sources and apply patches
+        run: |
+          set -euo pipefail
+          [ "$(awk '$1=="oaf"{print $3}' openwrt/sources.txt)" = "$(cat oaf-netns/UPSTREAM_COMMIT)" ] \
+            || { echo "::error::oaf commit differs between openwrt/sources.txt and oaf-netns/UPSTREAM_COMMIT"; exit 1; }
+          grep -vE '^\s*(#|$)' openwrt/sources.txt | while read -r name url commit dirs; do
+            git clone -q "$url" "src/$name"
+            git -C "src/$name" checkout -q "$commit"
+            [ "$(git -C "src/$name" rev-parse HEAD)" = "$commit" ]
+            if [ "$name" = oaf ]; then
+              git -C "src/$name" apply --verbose "$GITHUB_WORKSPACE"/oaf-netns/*.patch
+            fi
+            for d in $dirs; do
+              cp -r "src/$name/$d" "sdk/package/$d"
+              echo "$d" >> build-list
+            done
+          done
+          grep -q 'af_client' sdk/package/open-app-filter/files/appfilter.init
+          if grep -q 'kmod-oaf' sdk/package/luci-app-oaf/Makefile; then
+            echo "::error::luci-app-oaf still depends on kmod-oaf"; exit 1
+          fi
+
+      - name: Build packages
+        working-directory: sdk
+        run: |
+          set -euo pipefail
+          {
+            echo "CONFIG_LUCI_LANG_zh_Hans=y"
+            echo "CONFIG_SIGNED_PACKAGES=n"
+            while read -r d; do
+              p="$(sed -n 's/^PKG_NAME:=//p' "package/$d/Makefile")"
+              echo "CONFIG_PACKAGE_${p:-$d}=m"
+            done < ../build-list
+          } >> .config
+          make defconfig
+          while read -r d; do
+            echo "::group::$d"
+            make "package/$d/compile" -j"$(nproc)" V=s 2>&1 | tail -n 200
+            echo "::endgroup::"
+          done < ../build-list
+          mkdir -p ../apks
+          find bin/packages -path '*/base/*.apk' -exec cp {} ../apks/ \;
+          ls -l ../apks
+          test -n "$(ls ../apks/appfilter-*.apk)"
+          test -n "$(ls ../apks/luci-app-oaf-*.apk)"
+          test -n "$(ls ../apks/mosdns-*.apk)"
+          if ls bin/packages/*/packages/appfilter-*.apk bin/packages/*/packages/mosdns-*.apk 2>/dev/null; then
+            echo "::error::appfilter or mosdns was built from the feed"; exit 1
+          fi
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: apks
+          path: apks/
+          retention-days: 7
+
+  image:
+    needs: packages
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Download ImageBuilder
+        run: |
+          set -euo pipefail
+          curl -fsSL -o ib.tar.zst "${DL}/${IB}.tar.zst"
+          echo "${IB_SHA256}  ib.tar.zst" | sha256sum -c -
+          tar --zstd -xf ib.tar.zst
+          mv "${IB}" ib
+          # only the rootfs tarball is needed
+          sed -i -E 's/^(CONFIG_TARGET_ROOTFS_(EXT4FS|SQUASHFS|CPIOGZ|ISO)|CONFIG_GRUB_EFI_IMAGES|CONFIG_EFI_IMAGES)=y/# \1 is not set/' ib/.config
+          grep -q '^CONFIG_TARGET_ROOTFS_TARGZ=y' ib/.config || echo 'CONFIG_TARGET_ROOTFS_TARGZ=y' >> ib/.config
+
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: apks
+          path: ib/packages/
+
+      - name: Build rootfs
+        working-directory: ib
+        run: |
+          set -euo pipefail
+          pkgs="$(grep -vE '^\s*(#|$)' ../openwrt/packages.txt | tr '\n' ' ')"
+          # translations of the locally built apps
+          for f in packages/luci-i18n-*-zh-cn-*.apk; do
+            [ -e "$f" ] || continue
+            pkgs="$pkgs $(basename "$f" | sed -E 's/^(luci-i18n-.*-zh-cn)-[0-9].*/\1/')"
+          done
+          echo "packages: $pkgs"
+          make image PROFILE=generic PACKAGES="$pkgs" FILES="$GITHUB_WORKSPACE/openwrt/files" 2>&1 | tee ../ib.log
+          ls -l bin/targets/armsr/armv8/
+          rootfs="$(find bin/targets/armsr/armv8 -maxdepth 1 -name "*rootfs.tar.gz" | head -n1)"
+          test -s "$rootfs"
+          sudo ../docker/prepare-rootfs.sh "$rootfs" ../docker/rootfs.tar.gz
+          sudo chown "$(id -u):$(id -g)" ../docker/rootfs.tar.gz
+          # installed package list, for the summary and the release notes
+          tar -xzOf ../docker/rootfs.tar.gz ./lib/apk/db/installed | sed -n 's/^P://p' | sort > ../installed.txt
+          for p in $pkgs; do grep -qx "$p" ../installed.txt || { echo "::error::$p not installed"; exit 1; }; done
+          {
+            echo "### ImmortalWrt ${RELEASE} rootfs"
+            echo "- rootfs: $(du -h ../docker/rootfs.tar.gz | cut -f1)"
+            echo "- packages installed: $(wc -l < ../installed.txt)"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Build and push image
+        if: github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          echo "$GH_TOKEN" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          image="$(echo "$IMAGE" | tr '[:upper:]' '[:lower:]')"
+          tag="${RELEASE}-$(date -u +%Y%m%d)-${GITHUB_SHA::7}"
+          docker buildx build docker/ \
+            --platform linux/arm64 \
+            --provenance=false \
+            --label "org.opencontainers.image.source=https://github.com/${{ github.repository }}" \
+            --label "org.opencontainers.image.version=${tag}" \
+            -t "${image}:${tag}" -t "${image}:${RELEASE}" -t "${image}:latest" \
+            --push
+          echo "- image: \`${image}:${tag}\` (also \`${RELEASE}\`, \`latest\`)" >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: image-logs
+          path: |
+            ib.log
+            installed.txt
+          if-no-files-found: ignore
+          retention-days: 7

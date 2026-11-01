@@ -1,0 +1,335 @@
+diff --git a/oaf/src/fwx.h b/oaf/src/fwx.h
+index 99f867b..a6f46c8 100644
+--- a/oaf/src/fwx.h
++++ b/oaf/src/fwx.h
+@@ -21,6 +21,10 @@
+ #include <linux/list.h>
+ #include <linux/in6.h>
+ 
++/* network namespace oaf is attached to (init_net unless netns_pid= is given) */
++struct net;
++extern struct net *fwx_net;
++
+ #define AF_FEATURE_CONFIG_FILE "/tmp/feature.cfg"
+ 
+ #define MAX_DPI_PKT_NUM 256
+diff --git a/oaf/src/fwx_client.c b/oaf/src/fwx_client.c
+index 73ce087..eb87e38 100644
+--- a/oaf/src/fwx_client.c
++++ b/oaf/src/fwx_client.c
+@@ -882,7 +882,7 @@ int af_client_init(void)
+ 	int err;
+ 	nf_client_list_init();
+ #if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 3, 0)
+-	err = nf_register_net_hooks(&init_net, af_client_ops, ARRAY_SIZE(af_client_ops));
++	err = nf_register_net_hooks(fwx_net, af_client_ops, ARRAY_SIZE(af_client_ops));
+ #else
+ 	err = nf_register_hooks(af_client_ops, ARRAY_SIZE(af_client_ops));
+ #endif
+@@ -968,7 +968,7 @@ int fwx_api_flush_record_whitelist(cJSON *data_obj)
+ void af_client_exit(void)
+ {
+ #if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 3, 0)
+-	nf_unregister_net_hooks(&init_net, af_client_ops, ARRAY_SIZE(af_client_ops));
++	nf_unregister_net_hooks(fwx_net, af_client_ops, ARRAY_SIZE(af_client_ops));
+ #else
+ 	nf_unregister_hooks(af_client_ops, ARRAY_SIZE(af_client_ops));
+ #endif
+diff --git a/oaf/src/fwx_client_fs.c b/oaf/src/fwx_client_fs.c
+index 066ce9f..0ec8274 100644
+--- a/oaf/src/fwx_client_fs.c
++++ b/oaf/src/fwx_client_fs.c
+@@ -23,6 +23,7 @@
+ #include <linux/proc_fs.h>
+ #include <linux/sysctl.h>
+ #include <linux/mutex.h>
++#include "fwx.h"
+ #include "fwx_utils.h"
+ 
+ #include "k_json.h"
+@@ -540,7 +541,7 @@ static const struct proc_ops af_client_visit_fops = {
+ int init_af_client_procfs(void)
+ {
+     struct proc_dir_entry *pde;
+-    struct net *net = &init_net;
++    struct net *net = fwx_net;
+     pde = proc_create(AF_CLIENT_PROC_STR, 0440, net->proc_net, &af_client_fops);
+ 
+     if (!pde)
+@@ -567,7 +568,7 @@ int init_af_client_procfs(void)
+ 
+ void finit_af_client_procfs(void)
+ {
+-    struct net *net = &init_net;
++    struct net *net = fwx_net;
+     int i;
+     af_client_info_t *client;
+     
+@@ -814,7 +815,7 @@ int create_client_proc_dir(af_client_info_t *client)
+ 	struct proc_dir_entry *client_dir;
+ 	struct proc_dir_entry *visit_file;
+ 	char mac_str[32] = {0};
+-	struct net *net = &init_net;
++	struct net *net = fwx_net;
+ 	
+ 	if (!client)
+ 		return -1;
+diff --git a/oaf/src/fwx_conntrack.c b/oaf/src/fwx_conntrack.c
+index 6909677..d2a507f 100644
+--- a/oaf/src/fwx_conntrack.c
++++ b/oaf/src/fwx_conntrack.c
+@@ -272,7 +272,7 @@ static const struct proc_ops af_conn_fops = {
+ int af_conn_init_procfs(void)
+ {
+     struct proc_dir_entry *pde;
+-    struct net *net = &init_net;
++    struct net *net = fwx_net;
+     pde = proc_create(AF_CONN_PROC_STR, 0644, net->proc_net, &af_conn_fops);
+     if (!pde)
+     {
+@@ -285,7 +285,7 @@ int af_conn_init_procfs(void)
+ 
+ void af_conn_remove_procfs(void)
+ {
+-    struct net *net = &init_net;
++    struct net *net = fwx_net;
+     remove_proc_entry(AF_CONN_PROC_STR, net->proc_net);
+ }
+ 
+diff --git a/oaf/src/fwx_conntrack.h b/oaf/src/fwx_conntrack.h
+index 2e93f27..63f98ef 100644
+--- a/oaf/src/fwx_conntrack.h
++++ b/oaf/src/fwx_conntrack.h
+@@ -36,7 +36,8 @@ typedef struct {
+ 
+ int af_conn_init(void);
+ 
+-void af_conn_cleanup(void);
++void af_conn_cleanup(void);
++void af_conn_remove_procfs(void);
+ af_conn_t* af_conn_add(u32 src_ip, u32 dst_ip, 
+                        u16 src_port, u16 dst_port, 
+                        u8 protocol);
+diff --git a/oaf/src/fwx_main.c b/oaf/src/fwx_main.c
+index e13b48d..115add6 100644
+--- a/oaf/src/fwx_main.c
++++ b/oaf/src/fwx_main.c
+@@ -16,6 +16,7 @@
+ #include <uapi/linux/ipv6.h>
+ #include <linux/types.h>
+ #include <net/sock.h>
++#include <net/net_namespace.h>
+ #include <linux/etherdevice.h>
+ #include <linux/cdev.h>
+ #include <linux/device.h>
+@@ -47,6 +48,19 @@ MODULE_LICENSE("GPL");
+ MODULE_AUTHOR("www.fanchmwrt.com");
+ MODULE_DESCRIPTION("fwx module");
+ MODULE_VERSION(FWX_VERSION);
++
++/*
++ * netns support: attach oaf to the network namespace of a process instead of
++ * init_net, e.g. an OpenWrt docker container:
++ *   insmod oaf.ko netns_pid=$(docker inspect -f '{{.State.Pid}}' OpenWrt)
++ * No reference is held on that namespace. When it is torn down (container
++ * stopped) oaf detaches itself and stays idle until it is reloaded.
++ */
++static int netns_pid;
++module_param(netns_pid, int, 0444);
++MODULE_PARM_DESC(netns_pid, "attach to the network namespace of this pid (0 = init_net)");
++struct net *fwx_net = &init_net;
++static atomic_t fwx_net_attached = ATOMIC_INIT(0);
+ struct list_head af_feature_head = LIST_HEAD_INIT(af_feature_head);
+ 
+ DEFINE_RWLOCK(af_feature_lock);
+@@ -2146,7 +2160,7 @@ static int af_should_send_tcp_rst(struct sk_buff *skb, flow_info_t *flow)
+ static void af_send_tcp_reset(struct sk_buff *skb)
+ {
+ #if LINUX_VERSION_CODE > KERNEL_VERSION(5,10,197)
+-	nf_send_reset(&init_net, skb->sk, skb, NF_INET_PRE_ROUTING);
++	nf_send_reset(fwx_net, skb->sk, skb, NF_INET_PRE_ROUTING);
+ #elif LINUX_VERSION_CODE > KERNEL_VERSION(4,4,1)
+ 
+ 
+@@ -2711,6 +2725,8 @@ int af_send_msg_to_user(char *pbuf, uint16_t len)
+ 	int ret;
+ 	if (len >= MAX_FWX_NL_MSG_LEN)
+ 		return -1;
++	if (!fwx_sock || !atomic_read(&fwx_net_attached))
++		return -1;
+ 
+ 	msg_buf = kmalloc(buf_len, GFP_ATOMIC);
+ 	if (!msg_buf)
+@@ -2798,7 +2814,7 @@ static int netlink_fwx_init(void)
+ {
+ 	struct netlink_kernel_cfg nl_cfg = {0};
+ 	nl_cfg.input = fwx_netlink_msg_rcv;
+-	fwx_sock = netlink_kernel_create(&init_net, FWX_NETLINK_ID, &nl_cfg);
++	fwx_sock = netlink_kernel_create(fwx_net, FWX_NETLINK_ID, &nl_cfg);
+ 
+ 	if (NULL == fwx_sock)
+ 	{
+@@ -2815,9 +2831,56 @@ void af_active_app_clean_procfs(void);
+ int af_active_host_init_procfs(void);
+ void af_active_host_clean_procfs(void);
+ 
++/* tear down everything that lives in fwx_net; runs once (netns exit or rmmod) */
++static void fwx_detach_net(void)
++{
++	if (!atomic_xchg(&fwx_net_attached, 0))
++		return;
++	AF_INFO("fwx: detach from netns\n");
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 3, 0)
++	nf_unregister_net_hooks(fwx_net, fwx_ops, ARRAY_SIZE(fwx_ops));
++#else
++	nf_unregister_hooks(fwx_ops, ARRAY_SIZE(fwx_ops));
++#endif
++	fini_fwx_timer();
++	af_client_exit();
++	finit_af_client_procfs();
++	af_active_app_clean_procfs();
++	af_active_host_clean_procfs();
++	af_conn_remove_procfs();
++	if (fwx_sock)
++	{
++		netlink_kernel_release(fwx_sock);
++		fwx_sock = NULL;
++	}
++}
++
++static void fwx_net_pre_exit(struct net *net)
++{
++	if (net == fwx_net)
++		fwx_detach_net();
++}
++
++static struct pernet_operations fwx_net_ops = {
++	.pre_exit = fwx_net_pre_exit,
++};
++
+ static int __init fwx_init(void)
+ {
+ 	int err;
++	struct net *net = NULL;
++
++	if (netns_pid > 0)
++	{
++		net = get_net_ns_by_pid(netns_pid);
++		if (IS_ERR(net))
++		{
++			AF_ERROR("fwx: no netns for pid %d\n", netns_pid);
++			return PTR_ERR(net);
++		}
++		fwx_net = net;
++		AF_INFO("fwx: attach to netns of pid %d\n", netns_pid);
++	}
+ 	af_conn_init();
+ 	netlink_fwx_init();
+ 	af_log_init();
+@@ -2829,7 +2892,7 @@ static int __init fwx_init(void)
+ 	fwx_mac_filter_init();
+ 	fwx_app_filter_init();
+ #if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 3, 0)
+-	err = nf_register_net_hooks(&init_net, fwx_ops, ARRAY_SIZE(fwx_ops));
++	err = nf_register_net_hooks(fwx_net, fwx_ops, ARRAY_SIZE(fwx_ops));
+ #else
+ 	err = nf_register_hooks(fwx_ops, ARRAY_SIZE(fwx_ops));
+ #endif
+@@ -2838,6 +2901,13 @@ static int __init fwx_init(void)
+ 		AF_ERROR("fwx register filter hooks failed!\n");
+ 	}
+ 	init_fwx_timer();
++	atomic_set(&fwx_net_attached, 1);
++	/* get told when fwx_net goes away; only then drop our temporary reference */
++	err = register_pernet_subsys(&fwx_net_ops);
++	if (err)
++		AF_ERROR("fwx register pernet ops failed!\n");
++	if (net)
++		put_net(net);
+ 	AF_INFO("fwx: Driver ver. %s - Copyright(c) 2026, fanchmwrt, <www.fanchmwrt.com>\n", FWX_VERSION);
+ 	AF_INFO("fwx: init ok\n");
+ 	return 0;
+@@ -2846,26 +2916,16 @@ static int __init fwx_init(void)
+ static void fwx_fini(void)
+ {
+ 	AF_INFO("fwx module exit\n");
+-	fini_fwx_timer();
+-#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 3, 0)
+-	nf_unregister_net_hooks(&init_net, fwx_ops, ARRAY_SIZE(fwx_ops));
+-#else
+-	nf_unregister_hooks(fwx_ops, ARRAY_SIZE(fwx_ops));
+-#endif
+-	finit_af_client_procfs();
+-	af_active_app_clean_procfs();
+-	af_active_host_clean_procfs();
++	unregister_pernet_subsys(&fwx_net_ops);
++	fwx_detach_net();
+ 	af_clean_feature_list();
+ 	af_clear_active_app_list();
+ 	af_clear_active_host_list();
+ 	af_log_exit();
+-	af_client_exit();
+ 	fwx_app_filter_exit();
+ 	fwx_mac_filter_exit();
+ 	fwx_unregister_dev();
+-	if (fwx_sock)
+-		netlink_kernel_release(fwx_sock);
+-	af_conn_exit();
++	af_conn_cleanup();
+ 	return;
+ }
+ 
+@@ -3340,7 +3400,7 @@ static const struct proc_ops af_active_app_fops = {
+ int af_active_app_init_procfs(void)
+ {
+ 	struct proc_dir_entry *pde;
+-	struct net *net = &init_net;
++	struct net *net = fwx_net;
+ 	
+ 	pde = proc_create(AF_ACTIVE_APP_PROC_STR, 0444, net->proc_net, &af_active_app_fops);
+ 	if (!pde) {
+@@ -3353,7 +3413,7 @@ int af_active_app_init_procfs(void)
+ 
+ void af_active_app_clean_procfs(void)
+ {
+-	struct net *net = &init_net;
++	struct net *net = fwx_net;
+ 	remove_proc_entry(AF_ACTIVE_APP_PROC_STR, net->proc_net);
+ }
+ 
+@@ -3479,7 +3539,7 @@ static const struct proc_ops af_active_host_fops = {
+ int af_active_host_init_procfs(void)
+ {
+ 	struct proc_dir_entry *pde;
+-	struct net *net = &init_net;
++	struct net *net = fwx_net;
+ 	
+ 	pde = proc_create(AF_ACTIVE_HOST_PROC_STR, 0444, net->proc_net, &af_active_host_fops);
+ 	if (!pde) {
+@@ -3492,7 +3552,7 @@ int af_active_host_init_procfs(void)
+ 
+ void af_active_host_clean_procfs(void)
+ {
+-	struct net *net = &init_net;
++	struct net *net = fwx_net;
+ 	remove_proc_entry(AF_ACTIVE_HOST_PROC_STR, net->proc_net);
+ }
+ 
+diff --git a/open-app-filter/files/appfilter.init b/open-app-filter/files/appfilter.init
+index e309e46..0d69f68 100644
+--- a/open-app-filter/files/appfilter.init
++++ b/open-app-filter/files/appfilter.init
+@@ -87,9 +87,10 @@ stop_service(){
+ start_service(){
+ 	ensure_default_configs
+ 
+-	lsmod |grep "oaf" >/dev/null
+-	if [ $? -ne 0 ];then
+-		modprobe oaf
++	# in a docker container oaf.ko is loaded by the host (netns_pid=), and
++	# lsmod shows host modules; /proc/net/af_client exists only in the attached netns
++	if [ ! -e /proc/net/af_client ];then
++		modprobe oaf 2>/dev/null
+ 	fi
+ 
+ 	[ -x /usr/bin/hnat.sh ] && /usr/bin/hnat.sh 1

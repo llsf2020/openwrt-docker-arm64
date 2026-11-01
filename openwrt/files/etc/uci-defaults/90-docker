@@ -1,0 +1,9 @@
+#!/bin/sh
+# Running in a docker container: no flow offloading (it would also bypass
+# OpenAppFilter), no kernel modules to load.
+uci -q batch <<'EOF'
+set firewall.@defaults[0].flow_offloading='0'
+set firewall.@defaults[0].flow_offloading_hw='0'
+commit firewall
+EOF
+exit 0

@@ -1,0 +1,14 @@
+[Unit]
+Description=Attach OpenAppFilter (oaf.ko) to the OpenWrt container netns
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/lib/oaf-netns/oaf-netns-watch.sh
+ExecStopPost=/usr/local/lib/oaf-netns/oaf-netns-load.sh unload
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
