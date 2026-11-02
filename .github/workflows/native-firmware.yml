@@ -263,8 +263,9 @@ jobs:
         run: |
           set -euo pipefail
           # the packager replaces /lib/modules with the modules of the kernel
-          # it installs, keeps this file and links it into the module directory
-          install -Dm644 oaf/oaf.ko "extra-files/lib/modules/${KERNEL_VERSION}${KERNEL_LOCALVERSION}/extra/oaf.ko"
+          # it installs, keeps this file and links it into the module directory; it
+          # fails if the module directory has any subdirectory other than kernel/
+          install -Dm644 oaf/oaf.ko "extra-files/lib/modules/${KERNEL_VERSION}${KERNEL_LOCALVERSION}/kernel/extra/oaf.ko"
 
       - name: Package firmware
         uses: ophub/amlogic-s9xxx-openwrt@a4a9d879a68a76580027c54d9459a5c382491a54 # main, 2026-11-02
@@ -293,7 +294,7 @@ jobs:
           mkdir -p root
           sudo mount -o ro "${loop}p2" root
           m="root/lib/modules/${KERNEL_VERSION}${KERNEL_LOCALVERSION}"
-          for f in "$m/extra/oaf.ko" "$m/oaf.ko" "$m/tun.ko" "$m/nft_tproxy.ko" "$m/nft_socket.ko" \
+          for f in "$m/kernel/extra/oaf.ko" "$m/oaf.ko" "$m/tun.ko" "$m/nft_tproxy.ko" "$m/nft_socket.ko" \
                    root/etc/modules.d/99-oaf root/etc/uci-defaults/90-native root/usr/sbin/openwrt-install-amlogic; do
             sudo test -e "$f" || { echo "::error::$f is missing"; exit 1; }
           done
