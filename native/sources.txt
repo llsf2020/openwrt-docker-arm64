@@ -1,0 +1,8 @@
+# Packages that are not in the ImmortalWrt feeds, built with the SDK.
+# <name> <git url> <commit> <package dirs to build...>
+oaf     https://github.com/destan19/OpenAppFilter.git  0814b87f57181ef238b9a21604c999e98de73cf2  open-app-filter luci-app-oaf
+mosdns  https://github.com/sbwml/luci-app-mosdns.git   dbdd91ab8ac8b079b6a3ca1a48d99e970d17111b  mosdns luci-app-mosdns geo2txt
+momo    https://github.com/nikkinikki-org/OpenWrt-momo.git  f177d79d88ced747c74779e2fddc1e5b50663010  momo luci-app-momo
+lucky   https://github.com/gdy666/luci-app-lucky.git   91b506627c1d81fa323816e3aeafcbde493d03a9  lucky luci-app-lucky
+amlogic https://github.com/ophub/luci-app-amlogic.git  869a7ae501d54d9b94742a1165df374b2a4d0e69  luci-app-amlogic
+helloworld https://github.com/fw876/helloworld.git  04fe559424048d44aaf7c53f3b3c9a775c513a3b  shadowsocksr-libev luci-app-ssr-plus

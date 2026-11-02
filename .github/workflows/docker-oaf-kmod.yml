@@ -1,8 +1,8 @@
-name: oaf-kmod
+name: docker-oaf-kmod
 
 # Build oaf.ko (OpenAppFilter + netns patch) for the docker host's kernel.
 # The module is loaded on the host and attached to the OpenWrt container's
-# network namespace (see host/).
+# network namespace (see docker/host/).
 #
 # The kernel is described by repository secrets, so it does not appear in the
 # repository or in the (masked) logs:
@@ -21,14 +21,14 @@ on:
   push:
     branches: [main]
     paths:
-      - ".github/workflows/oaf-kmod.yml"
-      - "oaf-netns/**"
+      - ".github/workflows/docker-oaf-kmod.yml"
+      - "docker/oaf-netns/**"
 
 permissions:
   contents: read
 
 concurrency:
-  group: oaf-kmod
+  group: docker-oaf-kmod
   cancel-in-progress: true
 
 env:
@@ -89,11 +89,11 @@ jobs:
       - name: Fetch OpenAppFilter and apply netns patch
         run: |
           set -euo pipefail
-          commit="$(cat oaf-netns/UPSTREAM_COMMIT)"
+          commit="$(cat docker/oaf-netns/UPSTREAM_COMMIT)"
           git clone https://github.com/destan19/OpenAppFilter.git oaf-src
           git -C oaf-src checkout -q "$commit"
           [ "$(git -C oaf-src rev-parse HEAD)" = "$commit" ]
-          git -C oaf-src apply --verbose "$GITHUB_WORKSPACE"/oaf-netns/*.patch
+          git -C oaf-src apply --verbose "$GITHUB_WORKSPACE"/docker/oaf-netns/*.patch
 
       - name: Build oaf.ko
         run: |
@@ -122,7 +122,7 @@ jobs:
           set -euo pipefail
           mkdir -p out
           cp oaf-src/oaf/src/oaf.ko modinfo.txt build.log out/
-          cp -r host out/
+          cp -r docker/host out/
           git -C oaf-src rev-parse HEAD > out/UPSTREAM_COMMIT
           (cd out && sha256sum oaf.ko > oaf.ko.sha256)
           {

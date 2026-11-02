@@ -6,4 +6,7 @@ set firewall.@defaults[0].flow_offloading='0'
 set firewall.@defaults[0].flow_offloading_hw='0'
 commit firewall
 EOF
+# on by default without a usable configuration
+/etc/init.d/frpc disable
+/etc/init.d/haproxy disable
 exit 0

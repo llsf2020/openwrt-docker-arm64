@@ -1,0 +1,19 @@
+#!/bin/sh
+# Safe to plug into an existing LAN: no DHCP or IPv6 announcements until they
+# are turned on. No flow offloading, it would bypass OpenAppFilter.
+uci -q batch <<'EOF'
+set dhcp.lan.ignore='1'
+set dhcp.lan.ra='disabled'
+set dhcp.lan.dhcpv6='disabled'
+set dhcp.lan.ndp='disabled'
+commit dhcp
+set firewall.@defaults[0].flow_offloading='0'
+set firewall.@defaults[0].flow_offloading_hw='0'
+commit firewall
+EOF
+/etc/init.d/odhcpd disable
+# on by default without a usable configuration
+/etc/init.d/frpc disable
+/etc/init.d/frps disable
+/etc/init.d/haproxy disable
+exit 0

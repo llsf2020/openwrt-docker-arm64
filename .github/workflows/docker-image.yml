@@ -1,7 +1,7 @@
-name: openwrt-image
+name: docker-image
 
 # ImmortalWrt rootfs for an arm64 OpenWrt docker container, pushed to
-# ghcr.io. Packages missing from the feeds (openwrt/sources.txt) are built
+# ghcr.io. Packages missing from the feeds (docker/sources.txt) are built
 # with the SDK, everything is assembled with the ImageBuilder.
 
 on:
@@ -9,16 +9,14 @@ on:
   push:
     branches: [main]
     paths:
-      - ".github/workflows/openwrt-image.yml"
-      - "openwrt/**"
+      - ".github/workflows/docker-image.yml"
       - "docker/**"
-      - "oaf-netns/**"
 
 permissions:
   contents: read
 
 concurrency:
-  group: openwrt-image
+  group: docker-image
   cancel-in-progress: true
 
 env:
@@ -60,7 +58,7 @@ jobs:
           ./scripts/feeds update -a
           ./scripts/feeds install -a
           # the feed copies would be built instead of those from
-          # openwrt/sources.txt: appfilter is unpatched and needs kmod-oaf,
+          # docker/sources.txt: appfilter is unpatched and needs kmod-oaf,
           # mosdns has an init script that conflicts with luci-app-mosdns
           ./scripts/feeds uninstall open-app-filter mosdns
           [ ! -e package/feeds/packages/open-app-filter ]
@@ -69,14 +67,14 @@ jobs:
       - name: Fetch sources and apply patches
         run: |
           set -euo pipefail
-          [ "$(awk '$1=="oaf"{print $3}' openwrt/sources.txt)" = "$(cat oaf-netns/UPSTREAM_COMMIT)" ] \
-            || { echo "::error::oaf commit differs between openwrt/sources.txt and oaf-netns/UPSTREAM_COMMIT"; exit 1; }
-          grep -vE '^\s*(#|$)' openwrt/sources.txt | while read -r name url commit dirs; do
+          [ "$(awk '$1=="oaf"{print $3}' docker/sources.txt)" = "$(cat docker/oaf-netns/UPSTREAM_COMMIT)" ] \
+            || { echo "::error::oaf commit differs between docker/sources.txt and docker/oaf-netns/UPSTREAM_COMMIT"; exit 1; }
+          grep -vE '^\s*(#|$)' docker/sources.txt | while read -r name url commit dirs; do
             git clone -q "$url" "src/$name"
             git -C "src/$name" checkout -q "$commit"
             [ "$(git -C "src/$name" rev-parse HEAD)" = "$commit" ]
             if [ "$name" = oaf ]; then
-              git -C "src/$name" apply --verbose "$GITHUB_WORKSPACE"/oaf-netns/*.patch
+              git -C "src/$name" apply --verbose "$GITHUB_WORKSPACE"/docker/oaf-netns/*.patch
             fi
             for d in $dirs; do
               cp -r "src/$name/$d" "sdk/package/$d"
@@ -151,14 +149,14 @@ jobs:
         working-directory: ib
         run: |
           set -euo pipefail
-          pkgs="$(grep -vE '^\s*(#|$)' ../openwrt/packages.txt | tr '\n' ' ')"
+          pkgs="$(grep -vE '^\s*(#|$)' ../docker/packages.txt | tr '\n' ' ')"
           # translations of the locally built apps
           for f in packages/luci-i18n-*-zh-cn-*.apk; do
             [ -e "$f" ] || continue
             pkgs="$pkgs $(basename "$f" | sed -E 's/^(luci-i18n-.*-zh-cn)-[0-9].*/\1/')"
           done
           echo "packages: $pkgs"
-          make image PROFILE=generic PACKAGES="$pkgs" FILES="$GITHUB_WORKSPACE/openwrt/files" 2>&1 | tee ../ib.log
+          make image PROFILE=generic PACKAGES="$pkgs" FILES="$GITHUB_WORKSPACE/docker/files" 2>&1 | tee ../ib.log
           ls -l bin/targets/armsr/armv8/
           rootfs="$(find bin/targets/armsr/armv8 -maxdepth 1 -name "*rootfs.tar.gz" | head -n1)"
           test -s "$rootfs"

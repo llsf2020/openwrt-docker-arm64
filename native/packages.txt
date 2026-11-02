@@ -61,7 +61,7 @@ luci-i18n-statistics-zh-cn
 luci-app-acme
 luci-i18n-acme-zh-cn
 
-# app filter (oaf.ko itself is loaded by the docker host, see host/)
+# app filter (oaf.ko is built by the workflow and added to the image)
 appfilter
 luci-app-oaf
 
@@ -92,3 +92,67 @@ ip-full
 openssh-sftp-server
 htop
 nano
+
+# also shipped in ophub's firmware
+luci-app-attendedsysupgrade
+luci-i18n-attendedsysupgrade-zh-cn
+luci-app-diskman
+luci-i18n-diskman-zh-cn
+luci-app-frps
+luci-i18n-frps-zh-cn
+luci-app-upnp
+luci-i18n-upnp-zh-cn
+luci-app-ddns
+luci-i18n-ddns-zh-cn
+luci-app-arpbind
+luci-i18n-arpbind-zh-cn
+luci-theme-material
+# built from native/sources.txt
+luci-app-amlogic
+luci-app-ssr-plus
+shadowsocksr-libev-ssr-local
+shadowsocksr-libev-ssr-redir
+shadowsocks-rust-sslocal
+xray-core
+
+# required by the install and update scripts of the firmware
+attr
+bash
+bc
+blkid
+block-mount
+bsdtar
+btrfs-progs
+chattr
+coreutils
+coreutils-base64
+coreutils-nohup
+coreutils-truncate
+dosfstools
+dumpe2fs
+e2fsprogs
+fdisk
+gawk
+getopt
+jq
+losetup
+lsattr
+lsblk
+mount-utils
+parted
+perl-http-date
+perlbase-file
+perlbase-getopt
+perlbase-time
+perlbase-unicode
+perlbase-utf8
+pigz
+pv
+resize2fs
+tar
+tune2fs
+uuidgen
+xz
+zoneinfo-asia
+zoneinfo-core
+zstd

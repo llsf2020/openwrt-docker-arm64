@@ -1,0 +1,13 @@
+diff --git a/luci-app-oaf/Makefile b/luci-app-oaf/Makefile
+index dd376e9..3c0b724 100644
+--- a/luci-app-oaf/Makefile
++++ b/luci-app-oaf/Makefile
+@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
+ 
+ LUCI_TITLE:=LuCI app for OAF
+ LUCI_PKGARCH:=all
+-LUCI_DEPENDS:=+appfilter +kmod-oaf +luci-compat +luci-lib-jsonc
++LUCI_DEPENDS:=+appfilter +luci-compat +luci-lib-jsonc
+ 
+ PKG_NAME:=luci-app-oaf
+ PKG_VERSION:=7.0
