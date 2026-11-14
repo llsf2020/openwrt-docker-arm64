@@ -65,6 +65,9 @@ luci-i18n-acme-zh-cn
 appfilter
 luci-app-oaf
 
+# internet time control per device (off until enabled)
+luci-app-timecontrol
+
 # monitoring / tools
 luci-app-nlbwmon
 luci-i18n-nlbwmon-zh-cn

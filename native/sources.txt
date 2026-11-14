@@ -6,3 +6,4 @@ momo    https://github.com/nikkinikki-org/OpenWrt-momo.git  f177d79d88ced747c747
 lucky   https://github.com/gdy666/luci-app-lucky.git   b07f65c28bb5fa3da1fea4b8af5ce24a1488e79a  lucky luci-app-lucky
 amlogic https://github.com/ophub/luci-app-amlogic.git  b84ff404cd425993e004701b9f0c057d7d7e1464  luci-app-amlogic
 helloworld https://github.com/fw876/helloworld.git  6fbc9f563c9e7cd3b65061fba13ffc62666066aa  shadowsocksr-libev luci-app-ssr-plus
+timecontrol https://github.com/sirpdboy/luci-app-timecontrol.git  52b82003a9392fb2692662bb702d5610ce9ec505  luci-app-timecontrol
