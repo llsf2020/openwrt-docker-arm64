@@ -33,9 +33,9 @@ env:
   # the version and the hash together
   KERNEL_REPO: ophub/kernel
   KERNEL_TAG: kernel_stable
-  KERNEL_VERSION: "6.12.115"
+  KERNEL_VERSION: "6.12.117"
   KERNEL_LOCALVERSION: "-ophub"
-  KERNEL_SHA256: 35367bd5f1fcc4bd15f85637da0060dd5827588bc8f8d6070d21dcea3143c190
+  KERNEL_SHA256: b13650d47495eb6345e586bf45870eabe945a60ab6050c33718b1de9ddeb9acf
   # must be the compiler the kernel was built with (CONFIG_CC_VERSION_TEXT is checked)
   TOOLCHAIN_TAG: toolchain
   TOOLCHAIN: arm-gnu-toolchain-15.3.rel1-aarch64-aarch64-none-linux-gnu
@@ -229,12 +229,12 @@ jobs:
           sed -i -E 's/^(CONFIG_TARGET_ROOTFS_(EXT4FS|SQUASHFS|CPIOGZ|ISO)|CONFIG_GRUB_EFI_IMAGES|CONFIG_EFI_IMAGES)=y/# \1 is not set/' ib/.config
           grep -q '^CONFIG_TARGET_ROOTFS_TARGZ=y' ib/.config || echo 'CONFIG_TARGET_ROOTFS_TARGZ=y' >> ib/.config
 
-      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: native-apks
           path: ib/packages/
 
-      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: native-oaf
           path: oaf/
@@ -268,7 +268,7 @@ jobs:
           install -Dm644 oaf/oaf.ko "extra-files/lib/modules/${KERNEL_VERSION}${KERNEL_LOCALVERSION}/kernel/extra/oaf.ko"
 
       - name: Package firmware
-        uses: ophub/amlogic-s9xxx-openwrt@a4a9d879a68a76580027c54d9459a5c382491a54 # main, 2026-11-02
+        uses: ophub/amlogic-s9xxx-openwrt@137f880c980fd53bb9a3cc8c43a5b59f28d6235c # main, 2026-11-07
         with:
           openwrt_path: rootfs/*rootfs.tar.gz
           openwrt_board: s905d

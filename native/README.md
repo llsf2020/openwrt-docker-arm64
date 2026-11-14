@@ -1,6 +1,6 @@
 # Firmware for the Phicomm N1
 
-ImmortalWrt 25.12.2 with kernel 6.12.115-ophub, installed directly on the box. Images are published as releases named `native-<version>-<date>-<commit>`.
+ImmortalWrt 25.12.2 with kernel 6.12.117-ophub, installed directly on the box. Images are published as releases named `native-<version>-<date>-<commit>`.
 
 | Path | Contents |
 |---|---|
