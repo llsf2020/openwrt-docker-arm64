@@ -1,0 +1,4 @@
+# Packages not in the ImmortalWrt feeds, built by extra-packages.yml together with the
+# packages in this folder.
+# <name> <git url> <commit> <package dirs to build...>
+netspeedtest https://github.com/sirpdboy/netspeedtest.git  0c936e9dd513b2915229871b088b85ca817f5083  homebox ookla-speedtest luci-app-netspeedtest

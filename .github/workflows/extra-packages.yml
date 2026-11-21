@@ -1,21 +1,22 @@
-name: cfbest-package
+name: extra-packages
 
-# Builds only cfst and luci-app-cfbest (packages/), as ipk for 24.10 and apk
-# for 25.12, and publishes them as a release.
+# Builds only the packages in packages/ (each folder with a Makefile) and those
+# listed in packages/sources.txt, as ipk for 24.10 and apk for 25.12, and
+# publishes them as a release. The images are not rebuilt.
 
 on:
   workflow_dispatch:
   push:
     branches: [main]
     paths:
-      - ".github/workflows/cfbest-package.yml"
+      - ".github/workflows/extra-packages.yml"
       - "packages/**"
 
 permissions:
   contents: read
 
 concurrency:
-  group: cfbest-package
+  group: extra-packages
   cancel-in-progress: true
 
 jobs:
@@ -60,30 +61,50 @@ jobs:
         working-directory: sdk
         run: |
           set -euo pipefail
-          cp -r ../packages/cfst ../packages/luci-app-cfbest package/
+          : > ../build-list
+          # packages kept in this repository
+          for d in ../packages/*/; do
+            [ -f "$d/Makefile" ] || continue
+            cp -r "$d" package/
+            basename "$d" >> ../build-list
+          done
+          # third-party packages at pinned commits
+          grep -vE '^\s*(#|$)' ../packages/sources.txt | while read -r name url commit dirs; do
+            git clone -q "$url" "../src/$name"
+            git -C "../src/$name" checkout -q "$commit"
+            [ "$(git -C "../src/$name" rev-parse HEAD)" = "$commit" ]
+            for d in $dirs; do
+              cp -r "../src/$name/$d" "package/$d"
+              echo "$d" >> ../build-list
+            done
+          done
+          cat ../build-list
           {
             echo "CONFIG_LUCI_LANG_zh_Hans=y"
             echo "CONFIG_SIGNED_PACKAGES=n"
-            echo "CONFIG_PACKAGE_cfst=m"
-            echo "CONFIG_PACKAGE_luci-app-cfbest=m"
+            while read -r d; do
+              p="$(sed -n 's/^PKG_NAME:=//p' "package/$d/Makefile")"
+              echo "CONFIG_PACKAGE_${p:-$d}=m"
+            done < ../build-list
           } >> .config
           make defconfig
-          for p in cfst luci-app-cfbest; do
-            echo "::group::$p"
-            make "package/$p/compile" -j"$(nproc)" V=s 2>&1 | tail -n 100
+          while read -r d; do
+            echo "::group::$d"
+            make "package/$d/compile" -j"$(nproc)" V=s 2>&1 | tail -n 100
             echo "::endgroup::"
-          done
+          done < ../build-list
+          # packages from package/ end up in the "base" folder, feed packages elsewhere
           mkdir -p ../out
-          find bin/packages -type f \( -name 'cfst[-_]*' -o -name 'luci-app-cfbest[-_]*' -o -name 'luci-i18n-cfbest-*' \) \
-            \( -name '*.ipk' -o -name '*.apk' \) -exec cp {} ../out/ \;
+          find bin/packages -path '*/base/*' -type f \( -name '*.ipk' -o -name '*.apk' \) -exec cp {} ../out/ \;
           ls -l ../out
-          test -n "$(ls ../out/cfst[-_]*)"
-          test -n "$(ls ../out/luci-app-cfbest[-_]*)"
-          test -n "$(ls ../out/luci-i18n-cfbest-zh-cn[-_]*)"
+          while read -r d; do
+            p="$(sed -n 's/^PKG_NAME:=//p' "package/$d/Makefile")"
+            ls ../out/"${p:-$d}"[-_]* >/dev/null || { echo "::error::${p:-$d} was not built"; exit 1; }
+          done < ../build-list
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: cfbest-${{ matrix.release }}
+          name: extra-${{ matrix.release }}
           path: out/
           retention-days: 7
 
@@ -98,7 +119,7 @@ jobs:
 
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          pattern: cfbest-*
+          pattern: extra-*
           path: dist/
 
       - name: Publish release
@@ -106,14 +127,13 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          ver="$(sed -n 's/^PKG_VERSION:=//p' packages/luci-app-cfbest/Makefile)"
-          tag="cfbest-${ver}-$(date -u +%Y%m%d)-${GITHUB_SHA::7}"
+          tag="packages-$(date -u +%Y%m%d)-${GITHUB_SHA::7}"
           mkdir -p release
-          for d in dist/cfbest-*; do
-            rel="${d#dist/cfbest-}"
+          for d in dist/extra-*; do
+            rel="${d#dist/extra-}"
             for f in "$d"/*; do cp "$f" "release/${rel}_$(basename "$f")"; done
           done
           (cd release && sha256sum * > SHA256SUMS)
           ls -l release
           gh release create "$tag" release/* --target "$GITHUB_SHA" --title "$tag" \
-            --notes "luci-app-cfbest ${ver} and cfst for aarch64. Files starting with 24.10.6_ are ipk for ImmortalWrt/OpenWrt 24.10 (opkg), 25.12.2_ are apk for 25.12."
+            --notes "Packages from packages/ for aarch64. Files starting with 24.10.6_ are ipk for ImmortalWrt/OpenWrt 24.10 (opkg), 25.12.2_ are apk for 25.12."

@@ -87,6 +87,7 @@ luci-app-filebrowser-go
 luci-i18n-filebrowser-go-zh-cn
 luci-app-vlmcsd
 luci-i18n-vlmcsd-zh-cn
+luci-app-netspeedtest
 
 # shell
 curl
