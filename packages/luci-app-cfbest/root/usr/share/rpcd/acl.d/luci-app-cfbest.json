@@ -1,0 +1,21 @@
+{
+	"luci-app-cfbest": {
+		"description": "Grant access to Cloudflare IP selection",
+		"read": {
+			"file": {
+				"/usr/bin/cfbest status": [ "exec" ],
+				"/usr/bin/cfbest log *": [ "exec" ]
+			},
+			"uci": [ "cfbest" ]
+		},
+		"write": {
+			"file": {
+				"/usr/bin/cfbest start": [ "exec" ],
+				"/usr/bin/cfbest start-test": [ "exec" ],
+				"/usr/bin/cfbest sources": [ "exec" ],
+				"/usr/bin/cfbest restore": [ "exec" ]
+			},
+			"uci": [ "cfbest" ]
+		}
+	}
+}

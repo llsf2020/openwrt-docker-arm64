@@ -6,6 +6,7 @@ ImmortalWrt for arm64, in two separate builds:
 |---|---|---|
 | `docker/` | Container for an arm64 Linux docker host, with OpenAppFilter working inside the container | `ghcr.io/<owner>/<repo>` |
 | `native/` | Firmware for the Phicomm N1, installed directly on the box. See [native/README.md](native/README.md) | Releases |
+| `packages/` | `luci-app-cfbest` (Cloudflare IP selection for proxy nodes) and `cfst`, built on their own by `cfbest-package.yml` as ipk (24.10) and apk (25.12) | Releases `cfbest-*` |
 
 ## Layout of `docker/`
 

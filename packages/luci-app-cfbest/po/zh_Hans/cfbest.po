@@ -1,0 +1,218 @@
+msgid ""
+msgstr "Content-Type: text/plain; charset=UTF-8\n"
+
+msgid "unreachable"
+msgstr "不通"
+
+msgid "running"
+msgstr "运行中"
+
+msgid "stopped"
+msgstr "未运行"
+
+msgid "Domain"
+msgstr "域名"
+
+msgid "Current IP"
+msgstr "当前 IP"
+
+msgid "Colo"
+msgstr "机房"
+
+msgid "Score"
+msgstr "得分"
+
+msgid "Slow limit"
+msgstr "变慢阈值"
+
+msgid "Slow in a row"
+msgstr "连续变慢"
+
+msgid "Last selection"
+msgstr "上次优选"
+
+msgid "No selection yet."
+msgstr "还没有优选过。"
+
+msgid "No supported proxy app is installed."
+msgstr "没有安装支持的代理插件。"
+
+msgid "State"
+msgstr "状态"
+
+msgid "selecting…"
+msgstr "正在优选…"
+
+msgid "idle"
+msgstr "空闲"
+
+msgid "Automatic"
+msgstr "自动"
+
+msgid "on"
+msgstr "开"
+
+msgid "off"
+msgstr "关"
+
+msgid "Automatic selections today"
+msgstr "今天自动优选"
+
+msgid "Bypass mark"
+msgstr "放行标记"
+
+msgid "none"
+msgstr "无"
+
+msgid "cfst is missing"
+msgstr "找不到 cfst"
+
+msgid "Cloudflare IP selection"
+msgstr "Cloudflare 优选"
+
+msgid "Finds the fastest Cloudflare IP for proxy nodes behind the Cloudflare CDN and writes it into the selected nodes. The original domain stays as SNI/Host. Every few minutes the current IP is checked; only when it gets slow is a new IP selected."
+msgstr "给套了 Cloudflare CDN 的代理节点找最快的 Cloudflare IP，写进勾选的节点，原域名保留为 SNI/Host。每隔几分钟检查当前 IP，只有变慢了才重新优选。"
+
+msgid "Status"
+msgstr "状态"
+
+msgid "Selection started, see the log below."
+msgstr "已开始优选，进度见下方日志。"
+
+msgid "Select now"
+msgstr "立即优选"
+
+msgid "Test started, nothing will be changed."
+msgstr "已开始测速，不会修改任何节点。"
+
+msgid "Test only"
+msgstr "只测速不应用"
+
+msgid "Sources refreshed."
+msgstr "IP 来源已更新。"
+
+msgid "Refresh IP sources"
+msgstr "更新 IP 来源"
+
+msgid "Put the original domains back into the selected nodes?"
+msgstr "把勾选节点的地址改回原域名？"
+
+msgid "Restored."
+msgstr "已恢复。"
+
+msgid "Restore domains"
+msgstr "恢复域名"
+
+msgid "Nodes"
+msgstr "节点"
+
+msgid "Nodes behind the Cloudflare CDN (TLS, a domain as SNI/Host, WebSocket/gRPC/HTTPUpgrade/XHTTP transport, a Cloudflare HTTPS port). Nodes with the same domain share one IP. Only apps that are running are restarted after a change."
+msgstr "这里只列出套了 Cloudflare CDN 的节点（TLS、SNI/Host 是域名、传输方式为 WebSocket/gRPC/HTTPUpgrade/XHTTP、端口是 Cloudflare 支持的 HTTPS 端口）。同一域名的节点共用一个 IP。改完后只重启正在运行的插件。"
+
+msgid "Nodes to replace"
+msgstr "要替换的节点"
+
+msgid "now"
+msgstr "现在"
+
+msgid "Not usable"
+msgstr "不能优选"
+
+msgid "Check automatically"
+msgstr "自动检查"
+
+msgid "Checks the current IP of every domain. Only checks while the app of the node is running."
+msgstr "检查每个域名的当前 IP。节点所在的插件运行时才检查。"
+
+msgid "Check every (minutes)"
+msgstr "检查间隔（分钟）"
+
+msgid "Slow above (ms)"
+msgstr "变慢阈值（毫秒）"
+
+msgid "Time to first byte through the CDN to the origin. The limit is the larger of this and the score of the last selection × the factor below."
+msgstr "经 CDN 到源站的首字节时间。实际阈值取这个值和「上次得分 × 下面的倍数」中较大的一个。"
+
+msgid "Or score × factor"
+msgstr "或上次得分的倍数"
+
+msgid "Select again after slow checks in a row"
+msgstr "连续变慢几次后重新优选"
+
+msgid "At least between two selections (minutes)"
+msgstr "两次优选至少间隔（分钟）"
+
+msgid "Automatic selections per day at most"
+msgstr "每天最多自动优选几次"
+
+msgid "IP sources"
+msgstr "IP 来源"
+
+msgid "All sources are merged and measured in one cfst run. A source that cannot be downloaded falls back to its last copy."
+msgstr "所有来源合并去重后用 cfst 一次测完。下载失败的来源用上次的缓存。"
+
+msgid "Cloudflare ranges"
+msgstr "Cloudflare 官方网段"
+
+msgid "Other lists (URL)"
+msgstr "其他列表（URL）"
+
+msgid "Text lists of IPs or ranges, one per line. Lines such as \"1.2.3.4:443#HKG\" or CSV are accepted, only the address at the start of the line is used."
+msgstr "每行一个 IP 或网段的文本列表。也支持「1.2.3.4:443#HKG」这类格式和 CSV，只取每行开头的地址。"
+
+msgid "Only keep IPs in the Cloudflare ranges"
+msgstr "只保留 Cloudflare 官方网段内的 IP"
+
+msgid "Applies to the other lists."
+msgstr "只对其他列表生效。"
+
+msgid "At most entries per list"
+msgstr "每个列表最多取几条"
+
+msgid "Measure the fastest IPs of earlier selections again"
+msgstr "历史上最快的 IP 也一起测"
+
+msgid "Always add the list that comes with cfst"
+msgstr "总是加入 cfst 自带列表"
+
+msgid "Used anyway when no other source gives anything."
+msgstr "其他来源都拿不到时，无论是否勾选都会用它。"
+
+msgid "Leave out unusable ranges"
+msgstr "排除不可用网段"
+
+msgid "Ranges left out"
+msgstr "排除的网段"
+
+msgid "Cloudflare ranges that are special-purpose or do not serve proxied sites."
+msgstr "Cloudflare 的特殊用途网段，或不承载代理网站的网段。"
+
+msgid "Measuring"
+msgstr "测速"
+
+msgid "cfst threads"
+msgstr "cfst 线程数"
+
+msgid "cfst latency limit (ms)"
+msgstr "cfst 延迟上限（毫秒）"
+
+msgid "Candidates per colo"
+msgstr "每个机房取几个候选"
+
+msgid "Candidates at most"
+msgstr "最多几个候选"
+
+msgid "Requests per candidate"
+msgstr "每个候选测几次"
+
+msgid "Replace only when faster by (%)"
+msgstr "快多少才替换（%）"
+
+msgid "Firewall mark that lets the measuring traffic past the transparent proxy. auto: 0xff for PassWall/PassWall2, the self mark of HomeProxy; OpenClash needs none. none: no mark."
+msgstr "让测速流量绕过透明代理的防火墙标记。auto：PassWall/PassWall2 用 0xff，HomeProxy 用它的 self mark，OpenClash 不需要；none：不打标记。"
+
+msgid "Log"
+msgstr "日志"
+
+msgid "Grant access to Cloudflare IP selection"
+msgstr "允许访问 Cloudflare 优选"

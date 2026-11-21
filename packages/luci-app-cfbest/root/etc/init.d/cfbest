@@ -1,0 +1,39 @@
+#!/bin/sh /etc/rc.common
+# Keeps the cron entry of cfbest in line with the "auto" setting.
+
+START=99
+USE_PROCD=1
+
+CRONTAB=/etc/crontabs/root
+
+sync_cron() {
+	local auto interval
+	config_load cfbest
+	config_get_bool auto main auto 0
+	config_get interval main interval 5
+	case "$interval" in ''|*[!0-9]*) interval=5 ;; esac
+	[ "$interval" -ge 1 ] && [ "$interval" -le 59 ] || interval=5
+
+	mkdir -p /etc/crontabs
+	touch "$CRONTAB"
+	sed -i '/\/usr\/bin\/cfbest cron/d' "$CRONTAB"
+	[ "$auto" = 1 ] && echo "*/$interval * * * * /usr/bin/cfbest cron" >> "$CRONTAB"
+	/etc/init.d/cron restart >/dev/null 2>&1
+}
+
+start_service() {
+	sync_cron
+}
+
+reload_service() {
+	sync_cron
+}
+
+stop_service() {
+	sed -i '/\/usr\/bin\/cfbest cron/d' "$CRONTAB" 2>/dev/null
+	/etc/init.d/cron restart >/dev/null 2>&1
+}
+
+service_triggers() {
+	procd_add_reload_trigger cfbest
+}

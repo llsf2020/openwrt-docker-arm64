@@ -1,0 +1,14 @@
+{
+	"admin/services/cfbest": {
+		"title": "Cloudflare IP selection",
+		"order": 60,
+		"action": {
+			"type": "view",
+			"path": "cfbest"
+		},
+		"depends": {
+			"acl": [ "luci-app-cfbest" ],
+			"uci": { "cfbest": true }
+		}
+	}
+}

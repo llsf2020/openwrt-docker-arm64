@@ -1,0 +1,5 @@
+#!/bin/sh
+/etc/init.d/cfbest enable
+/etc/init.d/cfbest start
+rm -f /tmp/luci-indexcache* /tmp/luci-modulecache/* 2>/dev/null
+exit 0
