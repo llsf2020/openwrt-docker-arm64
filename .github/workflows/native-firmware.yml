@@ -33,13 +33,13 @@ env:
   # the version and the hash together
   KERNEL_REPO: ophub/kernel
   KERNEL_TAG: kernel_stable
-  KERNEL_VERSION: "6.12.117"
+  KERNEL_VERSION: "6.12.118"
   KERNEL_LOCALVERSION: "-ophub"
-  KERNEL_SHA256: b13650d47495eb6345e586bf45870eabe945a60ab6050c33718b1de9ddeb9acf
+  KERNEL_SHA256: 80aeb165b80be4baf466bb1d2d3c086df5f3de1a91f63742b1df934fb4cc003c
   # must be the compiler the kernel was built with (CONFIG_CC_VERSION_TEXT is checked)
   TOOLCHAIN_TAG: toolchain
-  TOOLCHAIN: arm-gnu-toolchain-15.3.rel1-aarch64-aarch64-none-linux-gnu
-  TOOLCHAIN_SHA256: 8020be7aa1013704756158400cb5ba438d6f09b2909795d13617b9e7bac53286
+  TOOLCHAIN: arm-gnu-toolchain-15.3.rel2-aarch64-aarch64-none-linux-gnu
+  TOOLCHAIN_SHA256: 995f738fb1497dc463c2cf8e86084a89241f8bd13c5660bbde2809bfc274c953
 
 jobs:
   packages:
@@ -268,7 +268,7 @@ jobs:
           install -Dm644 oaf/oaf.ko "extra-files/lib/modules/${KERNEL_VERSION}${KERNEL_LOCALVERSION}/kernel/extra/oaf.ko"
 
       - name: Package firmware
-        uses: ophub/amlogic-s9xxx-openwrt@137f880c980fd53bb9a3cc8c43a5b59f28d6235c # main, 2026-11-07
+        uses: ophub/amlogic-s9xxx-openwrt@b0d3a707ff789e80c93e05b7335cedff4838018c # main, 2026-11-21
         with:
           openwrt_path: rootfs/*rootfs.tar.gz
           openwrt_board: s905d
