@@ -1,0 +1,84 @@
+diff --git a/luci-app-timecontrol/htdocs/luci-static/resources/view/timecontrol/basic.js b/luci-app-timecontrol/htdocs/luci-static/resources/view/timecontrol/basic.js
+index fbc46b9..4a6fd37 100644
+--- a/luci-app-timecontrol/htdocs/luci-static/resources/view/timecontrol/basic.js
++++ b/luci-app-timecontrol/htdocs/luci-static/resources/view/timecontrol/basic.js
+@@ -253,29 +253,6 @@ return view.extend({
+         o.value('combined', _('Combined Control (allow in period + limit duration)'));
+         o.default = 'period';
+         o.rmempty = false;
+-        o.onchange = function(ev, mode) {
+-            var row = this.map.findElement('id', this.cbid(this.section_id));
+-            if (row) {
+-                // 显示/隐藏相关字段
+-                var startTime = row.querySelector('[data-field="timestart"]');
+-                var endTime = row.querySelector('[data-field="timeend"]');
+-                var duration = row.querySelector('[data-field="duration"]');
+-                var useDuration = row.querySelector('[data-field="use_duration"]');
+-                var resetCycle = row.querySelector('[data-field="reset_cycle"]');
+-                
+-                if (startTime) startTime.parentElement.style.display = 
+-                    (mode === 'period' || mode === 'combined') ? '' : 'none';
+-                if (endTime) endTime.parentElement.style.display = 
+-                    (mode === 'period' || mode === 'combined') ? '' : 'none';
+-                if (duration) duration.parentElement.style.display = 
+-                    (mode === 'duration' || mode === 'combined') ? '' : 'none';
+-                if (useDuration) useDuration.parentElement.style.display = 
+-                    (mode === 'combined') ? '' : 'none';
+-                if (resetCycle) resetCycle.parentElement.style.display = 
+-                    (mode === 'duration' || mode === 'combined') ? '' : 'none';
+-            }
+-        };
+-
+         // 时间段控制字段
+         o = s.option(form.Value, 'timestart', _('Allow Start Time'));
+         o.placeholder = '00:00';
+diff --git a/luci-app-timecontrol/root/usr/bin/timecontrolctrl b/luci-app-timecontrol/root/usr/bin/timecontrolctrl
+index b4f4886..c65fa2a 100644
+--- a/luci-app-timecontrol/root/usr/bin/timecontrolctrl
++++ b/luci-app-timecontrol/root/usr/bin/timecontrolctrl
+@@ -44,7 +44,7 @@ config_t_get() {
+ 
+ # 获取启用设备
+ get_enabled_devices() {
+-    uci show $NAME 2>/dev/null | grep "enable='1'" | grep "device" | grep -oE '\[.*?\]' | grep -o '[0-9]' | sort -n
++    uci show $NAME 2>/dev/null | grep "enable='1'" | grep "device" | grep -oE '\[[0-9]+\]' | grep -oE '[0-9]+' | sort -un
+ }
+ 
+ # 时间检查函数
+@@ -56,9 +56,9 @@ is_time_in_range() {
+     if [ "$start_time" = "$end_time" ]; then
+         return 0
+     elif [ "$start_time" \< "$end_time" ]; then
+-        [ "$current_time" \> "$start_time" ] && [ "$current_time" \< "$end_time" ] && return 0
++        ! [ "$current_time" \< "$start_time" ] && [ "$current_time" \< "$end_time" ] && return 0
+     else
+-        [ "$current_time" \> "$start_time" ] || [ "$current_time" \< "$end_time" ] && return 0
++        { ! [ "$current_time" \< "$start_time" ] || [ "$current_time" \< "$end_time" ]; } && return 0
+     fi
+     return 1
+ }
+@@ -318,14 +318,20 @@ main_loop() {
+     init_dirs
+     while :; do
+         dbg "开始检查设备"
+-        [ `uci show $NAME 2>/dev/null | grep "enable='1'" | grep "device" | grep -oE '\[.*?\]' | grep -o '[0-9]' | sort -n | wc -l` eq 0 ] && timecontrol stop && break
++        [ `uci show $NAME 2>/dev/null | grep "enable='1'" | grep "device" | grep -oE '\[[0-9]+\]' | grep -oE '[0-9]+' | sort -un | wc -l` eq 0 ] && timecontrol stop && break
++        # Several rules for one device: allow it if any rule allows it (each rule used to block on its own)
++        allowed_targets=" "
+         for id in $(get_enabled_devices); do
+             if check_device_control "$id"; then
+-                update_device_status "$id" 0  # 允许
+-            else
+-                update_device_status "$id" 1  # 阻止
++                allowed_targets="$allowed_targets$(config_t_get device mac "$id") "
+             fi
+         done
++        for id in $(get_enabled_devices); do
++            case "$allowed_targets" in
++                *" $(config_t_get device mac "$id") "*) update_device_status "$id" 0 ;;  # allow
++                *) update_device_status "$id" 1 ;;  # block
++            esac
++        done
+         
+         sleep 60
+     done
