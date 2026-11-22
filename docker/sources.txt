@@ -6,3 +6,4 @@ momo    https://github.com/nikkinikki-org/OpenWrt-momo.git  f177d79d88ced747c747
 lucky   https://github.com/gdy666/luci-app-lucky.git   b07f65c28bb5fa3da1fea4b8af5ce24a1488e79a  lucky luci-app-lucky
 timecontrol https://github.com/sirpdboy/luci-app-timecontrol.git  52b82003a9392fb2692662bb702d5610ce9ec505  luci-app-timecontrol
 netspeedtest https://github.com/sirpdboy/netspeedtest.git  0c936e9dd513b2915229871b088b85ca817f5083  homebox ookla-speedtest luci-app-netspeedtest
+luci-app-adguardhome-classic https://github.com/rufengsuixing/luci-app-adguardhome.git  37fdf502b99328b37c9ef4c4387f069f67253f85  .

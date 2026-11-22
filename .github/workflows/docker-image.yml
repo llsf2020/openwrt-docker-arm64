@@ -11,6 +11,7 @@ on:
     paths:
       - ".github/workflows/docker-image.yml"
       - "docker/**"
+      - "patches/**"
 
 permissions:
   contents: read
@@ -28,6 +29,9 @@ env:
   # recipes break when it is set
   IB_NAME: immortalwrt-imagebuilder-25.12.2-armsr-armv8.Linux-x86_64
   IB_SHA256: a8c1ffda15e7d79854ff4afd711da3e7224e84945c79f03d80fc6cf48727cb9c
+  # AdGuard Home core shipped with luci-app-adguardhome-classic
+  AGH_VERSION: v1.0.0
+  AGH_SHA256: f5c331d29580726179d3119c0464ddacd6fdcd487a0a9e108532f58fdf772604
   IMAGE: ghcr.io/${{ github.repository }}
 
 jobs:
@@ -76,9 +80,15 @@ jobs:
             if [ "$name" = oaf ]; then
               git -C "src/$name" apply --verbose "$GITHUB_WORKSPACE"/docker/oaf-netns/*.patch
             fi
+            if [ -d "$GITHUB_WORKSPACE/patches/$name" ]; then
+              git -C "src/$name" apply --verbose "$GITHUB_WORKSPACE/patches/$name"/*.patch
+            fi
             for d in $dirs; do
-              cp -r "src/$name/$d" "sdk/package/$d"
-              echo "$d" >> build-list
+              # "." = the package is the whole repository, named after the sources.txt entry
+              if [ "$d" = . ]; then t="$name"; else t="$d"; fi
+              cp -r "src/$name/$d" "sdk/package/$t"
+              rm -rf "sdk/package/$t/.git"
+              echo "$t" >> build-list
             done
           done
           grep -q 'af_client' sdk/package/open-app-filter/files/appfilter.init
@@ -110,6 +120,7 @@ jobs:
           test -n "$(ls ../apks/appfilter-*.apk)"
           test -n "$(ls ../apks/luci-app-oaf-*.apk)"
           test -n "$(ls ../apks/mosdns-*.apk)"
+          test -n "$(ls ../apks/luci-app-adguardhome-classic-*.apk)"
           if ls bin/packages/*/packages/appfilter-*.apk bin/packages/*/packages/mosdns-*.apk 2>/dev/null; then
             echo "::error::appfilter or mosdns was built from the feed"; exit 1
           fi
@@ -144,6 +155,17 @@ jobs:
         with:
           name: apks
           path: ib/packages/
+
+      - name: Add the AdGuard Home core
+        run: |
+          set -euo pipefail
+          # luci-app-adguardhome-classic only ships the LuCI app; put the
+          # official core where it expects it, so it does not download it on first start
+          curl -fsSL -o agh.tar.gz "https://github.com/AdguardTeam/AdGuardHome/releases/download/${AGH_VERSION}/AdGuardHome_linux_arm64.tar.gz"
+          echo "${AGH_SHA256}  agh.tar.gz" | sha256sum -c -
+          tar -xzf agh.tar.gz
+          install -Dm755 AdGuardHome/AdGuardHome "$GITHUB_WORKSPACE/docker/files/usr/bin/AdGuardHome/AdGuardHome"
+          rm -rf agh.tar.gz AdGuardHome
 
       - name: Build rootfs
         working-directory: ib

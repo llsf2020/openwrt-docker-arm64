@@ -1,0 +1,176 @@
+diff --git a/luci-app-netspeedtest/htdocs/luci-static/resources/view/netspeedtest/wanspeedtest.js b/luci-app-netspeedtest/htdocs/luci-static/resources/view/netspeedtest/wanspeedtest.js
+index 8922455..5990fac 100644
+--- a/luci-app-netspeedtest/htdocs/luci-static/resources/view/netspeedtest/wanspeedtest.js
++++ b/luci-app-netspeedtest/htdocs/luci-static/resources/view/netspeedtest/wanspeedtest.js
+@@ -9,11 +9,18 @@
+ 'require uci';
+ 'require ui';
+ 'require form';
++'require rpc';
+ 
+ var Timeout = 300 * 1000;  
+ var ResultFile = '/tmp/netspeedtest_result';
+ var SpeedtestScript = '/usr/bin/netspeedtest.sh';
+ 
++var callGetServers = rpc.declare({
++    object: 'luci.netspeedtest',
++    method: 'get_servers',
++    expect: { servers: [] }
++});
++
+ return view.extend({
+     load() {
+         return Promise.all([
+@@ -21,7 +28,8 @@ return view.extend({
+             L.resolveDefault(fs.stat('/usr/bin/speedtest'), {}),
+             L.resolveDefault(fs.read(ResultFile), null),
+             L.resolveDefault(fs.stat(ResultFile), {}),
+-            uci.load('netspeedtest')
++            uci.load('netspeedtest'),
++            L.resolveDefault(callGetServers(), [])
+         ]);
+     },
+ 
+@@ -103,6 +111,12 @@ return view.extend({
+                     if (version) {
+                         shellCmd += ' --version ' + version;
+                     }
++                    var srvEl = document.getElementById('widget.cbid.netspeedtest.config.server_id') ||
++                        document.querySelector('[name="cbid.netspeedtest.config.server_id"]');
++                    var srv = srvEl ? String(srvEl.value || '').trim() : (uci.get('netspeedtest', 'config', 'server_id') || '');
++                    if (/^[0-9]+$/.test(srv)) {
++                        shellCmd += ' --server ' + srv;
++                    }
+                     shellCmd += ' > /dev/null 2>&1 &';
+                     console.log('Starting test with sh -c:', shellCmd);
+                     return fs.exec('/bin/ash', ['-c', shellCmd])
+@@ -389,6 +403,21 @@ return view.extend({
+             return uci.save('netspeedtest');
+         };
+ 
++        // speed test server: the nearest servers Ookla reports plus nearby regions (rpcd get_servers)
++        o = s.option(form.Value, 'server_id', '测速服务器',
++            '列表来自 speedtest.net：离你最近的服务器，加上周边地区的服务器。speedtest.net 在大陆只有上海电信一台，测宽带用它；其他是跨境线路。「自动选择」常会挑到香港移动，速度很低。也可以直接填服务器编号。');
++        o.value('auto', '自动选择');
++        var srvList = res[5] || [];
++        srvList.forEach(function(x) { o.value(String(x.id), x.label); });
++        if (!srvList.length)
++            o.value('3633', '中国大陆 · 上海 · China Telecom（3633）');
++        o.default = '3633';
++        o.rmempty = false;
++        o.write = function(section_id, formvalue) {
++            uci.set('netspeedtest', section_id, 'server_id', formvalue);
++            return uci.save('netspeedtest');
++        };
++
+         // 开始测试按钮
+         o = s.option(form.Button, 'start', _('Start Speed Test'));
+         o.inputtitle = _('Click to start speed test');
+diff --git a/luci-app-netspeedtest/root/usr/bin/netspeedtest.sh b/luci-app-netspeedtest/root/usr/bin/netspeedtest.sh
+index e2b9c2a..24f88da 100644
+--- a/luci-app-netspeedtest/root/usr/bin/netspeedtest.sh
++++ b/luci-app-netspeedtest/root/usr/bin/netspeedtest.sh
+@@ -10,7 +10,8 @@ TIMEOUT=120
+ 
+ # 默认设置
+ PREFERRED_VERSION="auto"
+-SELECTED_SERVER="auto"
++# China Telecom Shanghai, the only speedtest.net server in mainland China; auto often picks CMHK Hong Kong
++SELECTED_SERVER="3633"
+ 
+ # 日志函数
+ log() {
+@@ -252,17 +253,19 @@ main_test() {
+         log "Test successful"
+     fi
+     
+-    # 如果失败，尝试自动选择
++    # The selected server sometimes refuses a connection (too many tests from one IP): retry it
++    # after 10 s instead of falling back to auto, which often picks a cross-border server and
++    # reports a few Mbps.
+     if [ $TEST_SUCCESS -eq 0 ] && [ "$SELECTED_SERVER" != "auto" ]; then
+-        log "Test failed with selected server, trying automatic server selection"
+-        SELECTED_SERVER="auto"
++        log "Test failed with server $SELECTED_SERVER, retrying the same server in 10s"
++        sleep 10
+         
+         case $version_type in
+             ookla)
+-                RUNTEST=$(run_ookla_test "$speedtest_bin" "auto")
++                RUNTEST=$(run_ookla_test "$speedtest_bin" "$SELECTED_SERVER")
+                 ;;
+             python)
+-                RUNTEST=$(run_python_test "$speedtest_bin" "auto")
++                RUNTEST=$(run_python_test "$speedtest_bin" "$SELECTED_SERVER")
+                 ;;
+         esac
+         
+@@ -275,14 +278,14 @@ main_test() {
+         
+         if [ -n "$RESULT" ]; then
+             echo "$RESULT" > "$RESULT_FILE"
+-            log "Test successful with automatic server selection"
++            log "Test successful on retry"
+             TEST_SUCCESS=1
+         fi
+     fi
+     
+     # 最终检查
+     if [ $TEST_SUCCESS -eq 0 ]; then
+-        echo "Test failed" > "$RESULT_FILE"
++        echo "Test failed (server $SELECTED_SERVER busy, try again later or pick another server)" > "$RESULT_FILE"
+         log "All tests failed"
+     fi
+     
+diff --git a/luci-app-netspeedtest/root/usr/libexec/rpcd/luci.netspeedtest b/luci-app-netspeedtest/root/usr/libexec/rpcd/luci.netspeedtest
+new file mode 100755
+index 0000000..e96eb02
+--- /dev/null
++++ b/luci-app-netspeedtest/root/usr/libexec/rpcd/luci.netspeedtest
+@@ -0,0 +1,6 @@
++#!/bin/sh
++# rpcd backend for luci-app-netspeedtest: get_servers (already granted by the ACL)
++case "$1" in
++	list) echo '{ "get_servers": {} }' ;;
++	call) case "$2" in get_servers) exec /usr/bin/python3 /usr/share/netspeedtest/servers.py ;; esac ;;
++esac
+diff --git a/luci-app-netspeedtest/root/usr/share/netspeedtest/servers.py b/luci-app-netspeedtest/root/usr/share/netspeedtest/servers.py
+new file mode 100644
+index 0000000..ab301d3
+--- /dev/null
++++ b/luci-app-netspeedtest/root/usr/share/netspeedtest/servers.py
+@@ -0,0 +1,34 @@
++# Speedtest.net servers for the LuCI dropdown: the nearest ones Ookla reports
++# plus a few in nearby regions. Cached for a day in /tmp.
++import json, os, subprocess, time, urllib.request, urllib.parse
++CACHE = "/tmp/netspeedtest_servers.json"
++if os.path.exists(CACHE) and time.time() - os.path.getmtime(CACHE) < 86400:
++    print(open(CACHE).read()); raise SystemExit
++CN = {"China": "中国大陆", "Hong Kong": "中国香港", "Macau": "中国澳门", "Macao": "中国澳门", "Taiwan": "中国台湾",
++      "Japan": "日本", "South Korea": "韩国", "Korea": "韩国", "Singapore": "新加坡"}
++servers, seen = [], set()
++def add(sid, sponsor, city, country, group):
++    sid = int(sid)
++    if sid in seen: return
++    seen.add(sid)
++    servers.append({"id": sid, "group": group, "country": country,
++                    "label": "%s · %s · %s（%d）" % (CN.get(country, country), city, sponsor, sid)})
++try:
++    out = subprocess.run(["/usr/bin/ookla-speedtest", "--accept-license", "--accept-gdpr", "-L", "-f", "json"],
++                         capture_output=True, text=True, timeout=20).stdout
++    for s in json.loads(out).get("servers", []):
++        add(s["id"], s["name"], s["location"], s["country"], "nearest")
++except Exception:
++    pass
++for q in ["Hong Kong", "Macau", "Taipei", "Tokyo", "Osaka", "Seoul", "Singapore"]:
++    try:
++        url = "https://www.speedtest.net/api/js/servers?engine=js&limit=6&search=" + urllib.parse.quote(q)
++        for s in json.load(urllib.request.urlopen(url, timeout=6)):
++            add(s["id"], s["sponsor"], s["name"], s["country"], "region")
++    except Exception:
++        pass
++servers.sort(key=lambda s: (s["country"] != "China", s["group"] != "nearest"))
++res = json.dumps({"servers": servers}, ensure_ascii=False)
++if servers:
++    open(CACHE, "w").write(res)
++print(res)

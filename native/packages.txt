@@ -12,7 +12,7 @@ luci-app-firewall
 luci-i18n-firewall-zh-cn
 
 # DNS / ad blocking
-luci-app-adguardhome
+luci-app-adguardhome-classic
 luci-app-smartdns
 luci-i18n-smartdns-zh-cn
 mosdns

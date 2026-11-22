@@ -1,0 +1,88 @@
+diff --git a/Makefile b/Makefile
+index f3b3c35..76d480d 100755
+--- a/Makefile
++++ b/Makefile
+@@ -5,15 +5,17 @@
+ 
+ include $(TOPDIR)/rules.mk
+ 
+-PKG_NAME:=luci-app-adguardhome
++PKG_NAME:=luci-app-adguardhome-classic
+ PKG_VERSION:=1.8
+ PKG_RELEASE:=11
+ 
+ PKG_BUILD_DIR:=$(BUILD_DIR)/$(PKG_NAME)
++# po2lmo comes from the luci-base host build
++PKG_BUILD_DEPENDS:=luci-base/host
+ 
+ include $(INCLUDE_DIR)/package.mk
+ 
+-define Package/luci-app-adguardhome
++define Package/luci-app-adguardhome-classic
+ 	SECTION:=luci
+ 	CATEGORY:=LuCI
+ 	SUBMENU:=3. Applications
+@@ -23,7 +25,7 @@ define Package/luci-app-adguardhome
+ 	DEPENDS:=+!wget&&!curl:wget
+ endef
+ 
+-define Package/luci-app-adguardhome/description
++define Package/luci-app-adguardhome-classic/description
+ 	LuCI support for adguardhome
+ endef
+ 
+@@ -33,21 +35,21 @@ endef
+ define Build/Compile
+ endef
+ 
+-define Package/luci-app-adguardhome/conffiles
++define Package/luci-app-adguardhome-classic/conffiles
+ /usr/share/AdGuardHome/links.txt
+ /etc/config/AdGuardHome
+ endef
+ 
+-define Package/luci-app-adguardhome/install
++define Package/luci-app-adguardhome-classic/install
+     $(INSTALL_DIR) $(1)/usr/lib/lua/luci
+ 	cp -pR ./luasrc/* $(1)/usr/lib/lua/luci
+ 	$(INSTALL_DIR) $(1)/
+ 	cp -pR ./root/* $(1)/
+ 	$(INSTALL_DIR) $(1)/usr/lib/lua/luci/i18n
+-	po2lmo ./po/zh-cn/AdGuardHome.po $(1)/usr/lib/lua/luci/i18n/AdGuardHome.zh-cn.lmo
++	$(STAGING_DIR_HOSTPKG)/bin/po2lmo ./po/zh-cn/AdGuardHome.po $(1)/usr/lib/lua/luci/i18n/AdGuardHome.zh-cn.lmo
+ endef
+ 
+-define Package/luci-app-adguardhome/postinst
++define Package/luci-app-adguardhome-classic/postinst
+ #!/bin/sh
+ 	/etc/init.d/AdGuardHome enable >/dev/null 2>&1
+ 	enable=$(uci get AdGuardHome.AdGuardHome.enabled 2>/dev/null)
+@@ -59,7 +61,7 @@ define Package/luci-app-adguardhome/postinst
+ exit 0
+ endef
+ 
+-define Package/luci-app-adguardhome/prerm
++define Package/luci-app-adguardhome-classic/prerm
+ #!/bin/sh
+ if [ -z "$${IPKG_INSTROOT}" ]; then
+      /etc/init.d/AdGuardHome disable
+@@ -72,4 +74,4 @@ fi
+ exit 0
+ endef
+ 
+-$(eval $(call BuildPackage,luci-app-adguardhome))
++$(eval $(call BuildPackage,luci-app-adguardhome-classic))
+diff --git a/root/etc/init.d/AdGuardHome b/root/etc/init.d/AdGuardHome
+index 5018a85..b94a90f 100755
+--- a/root/etc/init.d/AdGuardHome
++++ b/root/etc/init.d/AdGuardHome
+@@ -441,7 +441,8 @@ start_service() {
+ 	ADDITIONAL_ARGS="$ADDITIONAL_ARGS -c $configpath"
+ 	ADDITIONAL_ARGS="$ADDITIONAL_ARGS -w $workdir"
+ 	config_get httpport $CONFIGURATION httpport 3000
+-	ADDITIONAL_ARGS="$ADDITIONAL_ARGS -p $httpport"
++	# AdGuard Home v1.0 removed -p/--port: keep the web port in the config file instead
++	[ -f "$configpath" ] && sed -i -E "/^http:/,/^[a-z]/ s#^(  address: .*:)[0-9]+\$#\\1$httpport#" "$configpath"
+ 
+ 	# hack to save config file when upgrade system
+ 	config_get upprotect $CONFIGURATION upprotect ""

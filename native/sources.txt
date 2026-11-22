@@ -7,3 +7,4 @@ lucky   https://github.com/gdy666/luci-app-lucky.git   b07f65c28bb5fa3da1fea4b8a
 amlogic https://github.com/ophub/luci-app-amlogic.git  e67c5be847e202964fa0bed4de93514ddcb47315  luci-app-amlogic
 helloworld https://github.com/fw876/helloworld.git  8134e2fff2b49b5f4308d295d2b2a987ca7207ec  shadowsocksr-libev luci-app-ssr-plus
 timecontrol https://github.com/sirpdboy/luci-app-timecontrol.git  52b82003a9392fb2692662bb702d5610ce9ec505  luci-app-timecontrol
+luci-app-adguardhome-classic https://github.com/rufengsuixing/luci-app-adguardhome.git  37fdf502b99328b37c9ef4c4387f069f67253f85  .

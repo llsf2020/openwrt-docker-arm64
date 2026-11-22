@@ -12,6 +12,7 @@ on:
     paths:
       - ".github/workflows/native-firmware.yml"
       - "native/**"
+      - "patches/**"
 
 permissions:
   contents: read
@@ -29,6 +30,9 @@ env:
   # recipes break when it is set
   IB_NAME: immortalwrt-imagebuilder-25.12.2-armsr-armv8.Linux-x86_64
   IB_SHA256: a8c1ffda15e7d79854ff4afd711da3e7224e84945c79f03d80fc6cf48727cb9c
+  # AdGuard Home core shipped with luci-app-adguardhome-classic
+  AGH_VERSION: v1.0.0
+  AGH_SHA256: f5c331d29580726179d3119c0464ddacd6fdcd487a0a9e108532f58fdf772604
   # ophub/kernel keeps only recent versions: when this one disappears, update
   # the version and the hash together
   KERNEL_REPO: ophub/kernel
@@ -85,9 +89,15 @@ jobs:
             if [ "$name" = oaf ]; then
               git -C "src/$name" apply --verbose "$GITHUB_WORKSPACE"/native/patches/*.patch
             fi
+            if [ -d "$GITHUB_WORKSPACE/patches/$name" ]; then
+              git -C "src/$name" apply --verbose "$GITHUB_WORKSPACE/patches/$name"/*.patch
+            fi
             for d in $dirs; do
-              cp -r "src/$name/$d" "sdk/package/$d"
-              echo "$d" >> build-list
+              # "." = the package is the whole repository, named after the sources.txt entry
+              if [ "$d" = . ]; then t="$name"; else t="$d"; fi
+              cp -r "src/$name/$d" "sdk/package/$t"
+              rm -rf "sdk/package/$t/.git"
+              echo "$t" >> build-list
             done
           done
           if grep -q 'kmod-oaf' sdk/package/luci-app-oaf/Makefile; then
@@ -120,6 +130,7 @@ jobs:
           test -n "$(ls ../apks/appfilter-*.apk)"
           test -n "$(ls ../apks/luci-app-oaf-*.apk)"
           test -n "$(ls ../apks/mosdns-*.apk)"
+          test -n "$(ls ../apks/luci-app-adguardhome-classic-*.apk)"
           test -n "$(ls ../apks/luci-app-ssr-plus-*.apk)"
           test -n "$(ls ../apks/shadowsocksr-libev-ssr-local-*.apk)"
           if ls bin/packages/*/packages/appfilter-*.apk bin/packages/*/packages/mosdns-*.apk 2>/dev/null; then
@@ -238,6 +249,17 @@ jobs:
         with:
           name: native-oaf
           path: oaf/
+
+      - name: Add the AdGuard Home core
+        run: |
+          set -euo pipefail
+          # luci-app-adguardhome-classic only ships the LuCI app; put the
+          # official core where it expects it, so it does not download it on first start
+          curl -fsSL -o agh.tar.gz "https://github.com/AdguardTeam/AdGuardHome/releases/download/${AGH_VERSION}/AdGuardHome_linux_arm64.tar.gz"
+          echo "${AGH_SHA256}  agh.tar.gz" | sha256sum -c -
+          tar -xzf agh.tar.gz
+          install -Dm755 AdGuardHome/AdGuardHome "$GITHUB_WORKSPACE/native/files/usr/bin/AdGuardHome/AdGuardHome"
+          rm -rf agh.tar.gz AdGuardHome
 
       - name: Build rootfs
         working-directory: ib

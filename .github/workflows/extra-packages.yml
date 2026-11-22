@@ -11,6 +11,7 @@ on:
     paths:
       - ".github/workflows/extra-packages.yml"
       - "packages/**"
+      - "patches/**"
 
 permissions:
   contents: read
@@ -73,6 +74,9 @@ jobs:
             git clone -q "$url" "../src/$name"
             git -C "../src/$name" checkout -q "$commit"
             [ "$(git -C "../src/$name" rev-parse HEAD)" = "$commit" ]
+            if [ -d "../patches/$name" ]; then
+              git -C "../src/$name" apply --verbose "$GITHUB_WORKSPACE/patches/$name"/*.patch
+            fi
             for d in $dirs; do
               cp -r "../src/$name/$d" "package/$d"
               echo "$d" >> ../build-list
