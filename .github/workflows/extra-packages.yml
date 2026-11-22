@@ -93,14 +93,23 @@ jobs:
             make "package/$d/compile" -j"$(nproc)" V=s 2>&1 | tail -n 100
             echo "::endgroup::"
           done < ../build-list
-          # packages from package/ end up in the "base" folder, feed packages elsewhere
+          # only the packages listed above and their translations: dependencies
+          # built along the way end up in the same folder
           mkdir -p ../out
-          find bin/packages -path '*/base/*' -type f \( -name '*.ipk' -o -name '*.apk' \) -exec cp {} ../out/ \;
-          ls -l ../out
           while read -r d; do
-            p="$(sed -n 's/^PKG_NAME:=//p' "package/$d/Makefile")"
-            ls ../out/"${p:-$d}"[-_]* >/dev/null || { echo "::error::${p:-$d} was not built"; exit 1; }
+            p="$(sed -n "s/^PKG_NAME:=//p" "package/$d/Makefile")"
+            p="${p:-$d}"
+            find bin/packages -path "*/base/*" -type f -name "${p}[-_][0-9]*" \( -name "*.ipk" -o -name "*.apk" \) -exec cp {} ../out/ \;
+            case "$p" in
+              luci-app-*)
+                i="luci-i18n-${p#luci-app-}-zh-cn"
+                find bin/packages -path "*/base/*" -type f -name "${i}[-_]*" \( -name "*.ipk" -o -name "*.apk" \) -exec cp {} ../out/ \;
+                ;;
+            esac
+            ls ../out/"$p"[-_]* >/dev/null || { echo "::error::$p was not built"; exit 1; }
           done < ../build-list
+          ls -l ../out
+          [ "$(ls ../out | wc -l)" -le 40 ] || { echo "::error::too many files collected"; exit 1; }
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:

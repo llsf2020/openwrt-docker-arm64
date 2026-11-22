@@ -1,0 +1,9 @@
+{
+	"admin/control": {
+		"title": "Control",
+		"order": 61,
+		"action": {
+			"type": "firstchild"
+		}
+	}
+}
