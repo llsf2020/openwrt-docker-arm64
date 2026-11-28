@@ -1,0 +1,123 @@
+name: auto-update
+
+# Every three days: move versions.env and the sources to the newest upstream
+# versions (scripts/update-versions.sh), commit that, and start docker-image and
+# native-firmware for whatever has not been built successfully yet. Nothing new
+# and everything built: nothing runs.
+#
+# A newer major version (ImmortalWrt branch or kernel branch) is never used on
+# its own: it goes to versions-next.env, is built as a test (image test-*,
+# pre-release test-native-*) and reported in an issue. To switch, change
+# IMMORTALWRT_BRANCH / KERNEL_BRANCH in versions.env.
+
+on:
+  schedule:
+    - cron: "0 19 */3 * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: write
+  issues: write
+
+concurrency:
+  group: auto-update
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-24.04
+    env:
+      GH_TOKEN: ${{ github.token }}
+      NOTES: ${{ runner.temp }}/notes.md
+      PROBLEMS: ${{ runner.temp }}/problems.txt
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Check upstream
+        run: scripts/update-versions.sh
+
+      - name: Commit
+        run: |
+          set -euo pipefail
+          cat "$NOTES" >> "$GITHUB_STEP_SUMMARY"
+          [ -n "$(git status --porcelain)" ] || { echo "nothing to commit"; exit 0; }
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A versions.env docker/sources.txt native/sources.txt docker/oaf-netns/UPSTREAM_COMMIT
+          if [ -e versions-next.env ] || git ls-files --error-unmatch versions-next.env >/dev/null 2>&1; then
+            git add -A versions-next.env
+          fi
+          git diff --cached --quiet && { echo "nothing to commit"; exit 0; }
+          git commit -q -m "Update versions" -m "$(cat "$NOTES")"
+          git push origin HEAD:main
+
+      - name: Start builds
+        run: |
+          set -euo pipefail
+          DOCKER_KEYS='^(RELEASE|DL|SDK|SDK_SHA256|IB_NAME|IB_SHA256|FEEDS_HASH|AGH_VERSION|AGH_SHA256)='
+          ALL_KEYS='^[A-Z][A-Z0-9_]*='
+          DOCKER_PATHS=(docker patches .github/workflows/docker-image.yml)
+          NATIVE_PATHS=(native patches .github/workflows/native-firmware.yml)
+
+          # what a build depends on, at a commit: the versions it reads and the
+          # blobs of its files
+          fp() { # rev versions_file keys paths...
+            local rev="$1" vf="$2" keys="$3"; shift 3
+            { git show "$rev:$vf" 2>/dev/null | grep -E "$keys" || echo missing
+              git ls-tree -r "$rev" -- "$@"; } | sha256sum
+          }
+          built() { # workflow versions_file keys paths...
+            local wf="$1" vf="$2" keys="$3" want s; shift 3
+            want="$(fp HEAD "$vf" "$keys" "$@")"
+            gh api "repos/$GITHUB_REPOSITORY/actions/workflows/$wf/runs?branch=main&status=success&per_page=100" \
+              --jq ".workflow_runs[] | select(.display_title | endswith(\"($vf)\")) | .head_sha" > shas
+            while read -r s; do
+              git cat-file -e "$s^{commit}" 2>/dev/null || continue
+              [ "$(fp "$s" "$vf" "$keys" "$@")" = "$want" ] && return 0
+            done < shas
+            return 1
+          }
+          start() { # workflow versions_file
+            echo "start $1 ($2)"
+            gh workflow run "$1" --ref main -f "versions_file=$2"
+            echo "- started $1 ($2)" >> "$GITHUB_STEP_SUMMARY"
+          }
+
+          built docker-image.yml versions.env "$DOCKER_KEYS" "${DOCKER_PATHS[@]}" || start docker-image.yml versions.env
+          built native-firmware.yml versions.env "$ALL_KEYS" "${NATIVE_PATHS[@]}" || start native-firmware.yml versions.env
+          if [ -f versions-next.env ]; then
+            # the image does not contain a kernel: only a new ImmortalWrt branch needs a test image
+            if [ "$(fp HEAD versions-next.env "$DOCKER_KEYS")" != "$(fp HEAD versions.env "$DOCKER_KEYS")" ]; then
+              built docker-image.yml versions-next.env "$DOCKER_KEYS" "${DOCKER_PATHS[@]}" || start docker-image.yml versions-next.env
+            fi
+            built native-firmware.yml versions-next.env "$ALL_KEYS" "${NATIVE_PATHS[@]}" || start native-firmware.yml versions-next.env
+          fi
+
+      - name: Open issues
+        run: |
+          set -euo pipefail
+          # one issue per title, never reopened: closing it means "seen"
+          issue() { # title body
+            if [ -z "$(gh issue list --state all --search "\"$1\" in:title" --json title --jq ".[] | select(.title == \"$1\") | .title")" ]; then
+              gh issue create --title "$1" --body "$2"
+            fi
+          }
+          get() { sed -n "s/^$2=//p" "$1"; }
+          if [ -f versions-next.env ]; then
+            title="New major version: ImmortalWrt $(get versions-next.env IMMORTALWRT_BRANCH), kernel $(get versions-next.env KERNEL_BRANCH)"
+            body="versions.env stays on ImmortalWrt $(get versions.env IMMORTALWRT_BRANCH) and kernel $(get versions.env KERNEL_BRANCH).
+          versions-next.env has $(get versions-next.env RELEASE) and kernel $(get versions-next.env KERNEL_VERSION); auto-update builds it as a test (pre-release test-native-*, image test-* when ImmortalWrt changes).
+
+          To switch after testing on the device, set IMMORTALWRT_BRANCH and/or KERNEL_BRANCH in versions.env and run auto-update."
+            issue "$title" "$body"
+          fi
+          while IFS=$'\t' read -r title details; do
+            [ -n "$title" ] || continue
+            issue "auto-update: $title" "$details
+
+          The source stays at its old commit until this is fixed (update the patch, or the commit by hand)." || true
+          done < "$PROBLEMS"

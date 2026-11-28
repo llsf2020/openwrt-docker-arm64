@@ -27,9 +27,19 @@ docker host (arm64)
 | `.github/workflows/docker-image.yml` | SDK build of `docker/sources.txt` (with the `docker/oaf-netns/` patches) → ImageBuilder rootfs → `ghcr.io/<owner>/<repo>`. |
 | `.github/workflows/docker-oaf-kmod.yml` | Builds `oaf.ko` against the host kernel's headers with the compiler the kernel was built with. The kernel is given by repository secrets (see the workflow). |
 
+## Versions and automatic updates
+
+`versions.env` holds every version the builds use: the ImmortalWrt release and its SDK and ImageBuilder, a hash of the feed indexes, the kernel for the N1 firmware and the toolchain it was built with, the packager commit and AdGuard Home, each with its sha256.
+
+`auto-update.yml` runs every three days. `scripts/update-versions.sh` moves `versions.env` to the newest point release of `IMMORTALWRT_BRANCH` and the newest kernel of `KERNEL_BRANCH`, and the sources in `docker/sources.txt` and `native/sources.txt` to their newest commits (a source stays where it is when our patches no longer apply; an issue says so). The workflow commits the result and starts `docker-image.yml` and `native-firmware.yml` for whatever has not been built yet; when nothing changed, nothing is built.
+
+A newer ImmortalWrt branch or kernel branch is not used on its own. It goes to `versions-next.env`, is built as a test (pre-release `test-native-*`, image tag `test-*`) and reported in an issue. To switch, change `IMMORTALWRT_BRANCH` or `KERNEL_BRANCH` in `versions.env`.
+
+The firmware workflow keeps the 5 newest releases (2 test releases); the image workflow keeps the 6 newest images plus `latest` and the release tags.
+
 ## Docker image
 
-ImmortalWrt 25.12.2, `linux/arm64`. Tags: `latest`, `25.12.2`, `25.12.2-<date>-<commit>`.
+ImmortalWrt (the release in `versions.env`), `linux/arm64`. Tags: `latest`, `<release>`, `<release>-<date>-<commit>`.
 
 On first boot the LAN is `192.168.1.1/24` with DHCP and router advertisements on, and root has no password. **Configure it on an isolated network before connecting it to an existing LAN**, or it will hand out addresses there:
 

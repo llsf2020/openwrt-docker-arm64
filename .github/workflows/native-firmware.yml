@@ -3,14 +3,25 @@ name: native-firmware
 # ImmortalWrt firmware for the Phicomm N1, installed directly on the box.
 # Packages missing from the feeds (native/sources.txt) are built with the SDK,
 # oaf.ko is built against the pinned kernel, the ImageBuilder assembles the
-# rootfs and ophub's packager turns it into a bootable image.
+# rootfs and ophub's packager turns it into a bootable image. The versions
+# come from versions.env; auto-update.yml builds versions-next.env (a newer
+# ImmortalWrt or kernel branch) as a test pre-release.
+
+# auto-update.yml finds the last build of each versions file by this title
+run-name: native-firmware (${{ inputs.versions_file || 'versions.env' }})
 
 on:
   workflow_dispatch:
+    inputs:
+      versions_file:
+        type: choice
+        options: [versions.env, versions-next.env]
+        default: versions.env
   push:
     branches: [main]
     paths:
       - ".github/workflows/native-firmware.yml"
+      - "versions.env"
       - "native/**"
       - "patches/**"
 
@@ -18,38 +29,27 @@ permissions:
   contents: read
 
 concurrency:
-  group: native-firmware
+  group: native-firmware-${{ inputs.versions_file || 'versions.env' }}
   cancel-in-progress: true
 
 env:
-  RELEASE: "25.12.2"
-  DL: https://downloads.immortalwrt.org/releases/25.12.2/targets/armsr/armv8
-  SDK: immortalwrt-sdk-25.12.2-armsr-armv8_gcc-14.3.0_musl.Linux-x86_64
-  SDK_SHA256: 8e2891ff99f12d1a9b7164c62064c3d47a1e766e04c3ad3f9f3d0189731f8c7d
-  # not IB: make reads that from the environment, and the ImageBuilder
-  # recipes break when it is set
-  IB_NAME: immortalwrt-imagebuilder-25.12.2-armsr-armv8.Linux-x86_64
-  IB_SHA256: a8c1ffda15e7d79854ff4afd711da3e7224e84945c79f03d80fc6cf48727cb9c
-  # AdGuard Home core shipped with luci-app-adguardhome-classic
-  AGH_VERSION: v1.0.0
-  AGH_SHA256: f5c331d29580726179d3119c0464ddacd6fdcd487a0a9e108532f58fdf772604
-  # ophub/kernel keeps only recent versions: when this one disappears, update
-  # the version and the hash together
+  # RELEASE, DL, SDK, IB_NAME (not IB: make reads that from the environment,
+  # and the ImageBuilder recipes break when it is set), AGH_VERSION, the kernel,
+  # the toolchain it was built with (CONFIG_CC_VERSION_TEXT is checked), the
+  # packager commit and their hashes
+  VERSIONS_FILE: ${{ inputs.versions_file || 'versions.env' }}
   KERNEL_REPO: ophub/kernel
   KERNEL_TAG: kernel_stable
-  KERNEL_VERSION: "6.12.118"
-  KERNEL_LOCALVERSION: "-ophub"
-  KERNEL_SHA256: 80aeb165b80be4baf466bb1d2d3c086df5f3de1a91f63742b1df934fb4cc003c
-  # must be the compiler the kernel was built with (CONFIG_CC_VERSION_TEXT is checked)
   TOOLCHAIN_TAG: toolchain
-  TOOLCHAIN: arm-gnu-toolchain-15.3.rel2-aarch64-aarch64-none-linux-gnu
-  TOOLCHAIN_SHA256: 995f738fb1497dc463c2cf8e86084a89241f8bd13c5660bbde2809bfc274c953
 
 jobs:
   packages:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Load versions
+        run: grep -E '^[A-Z][A-Z0-9_]*=' "$VERSIONS_FILE" | tee -a "$GITHUB_ENV"
 
       - name: Install build dependencies
         run: |
@@ -148,6 +148,9 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      - name: Load versions
+        run: grep -E '^[A-Z][A-Z0-9_]*=' "$VERSIONS_FILE" | tee -a "$GITHUB_ENV"
+
       - name: Download kernel headers
         env:
           GH_TOKEN: ${{ github.token }}
@@ -219,6 +222,9 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      - name: Load versions
+        run: grep -E '^[A-Z][A-Z0-9_]*=' "$VERSIONS_FILE" | tee -a "$GITHUB_ENV"
+
       - name: Prepare the runner
         run: |
           set -euo pipefail
@@ -289,8 +295,17 @@ jobs:
           # fails if the module directory has any subdirectory other than kernel/
           install -Dm644 oaf/oaf.ko "extra-files/lib/modules/${KERNEL_VERSION}${KERNEL_LOCALVERSION}/kernel/extra/oaf.ko"
 
+      # checked out at PACKAGER_COMMIT from the versions file, so that
+      # auto-update.yml can move it without editing this workflow
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ophub/amlogic-s9xxx-openwrt
+          ref: ${{ env.PACKAGER_COMMIT }}
+          path: .packager
+          persist-credentials: false
+
       - name: Package firmware
-        uses: ophub/amlogic-s9xxx-openwrt@b0d3a707ff789e80c93e05b7335cedff4838018c # main, 2026-11-21
+        uses: ./.packager
         with:
           openwrt_path: rootfs/*rootfs.tar.gz
           openwrt_board: s905d
@@ -343,14 +358,35 @@ jobs:
         run: |
           set -euo pipefail
           tag="native-${RELEASE}-$(date -u +%Y%m%d)-${GITHUB_SHA::7}"
+          notes="ImmortalWrt ${RELEASE} for the Phicomm N1, kernel ${KERNEL_VERSION}${KERNEL_LOCALVERSION}. See native/README.md."
+          flags=()
+          if [ "$VERSIONS_FILE" != versions.env ]; then
+            tag="test-${tag}-k${KERNEL_VERSION}"
+            notes="Test build of a newer major version (${VERSIONS_FILE}), not tested on a device. ${notes}"
+            flags=(--prerelease)
+          fi
           mkdir -p release
           name="immortalwrt-${RELEASE}-phicomm-n1-k${KERNEL_VERSION}.img.gz"
           sudo cp "$IMG_GZ" "release/$name"
           sudo chown "$(id -u):$(id -g)" "release/$name"
           (cd release && sha256sum "$name" > "$name.sha256")
-          gh release create "$tag" release/* --target "$GITHUB_SHA" --title "$tag" \
-            --notes "ImmortalWrt ${RELEASE} for the Phicomm N1, kernel ${KERNEL_VERSION}${KERNEL_LOCALVERSION}. See native/README.md."
+          gh release create "$tag" release/* --target "$GITHUB_SHA" --title "$tag" "${flags[@]}" \
+            --notes "$notes"
           echo "- release: \`$tag\`" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Remove old releases
+        if: github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # newest first; keep 5 firmware releases and 2 test releases
+          gh release list --limit 200 --json tagName --jq '.[].tagName' > tags
+          { grep '^native-' tags | tail -n +6 || true; grep '^test-native-' tags | tail -n +3 || true; } |
+            while read -r t; do
+              echo "delete $t"
+              gh release delete "$t" --yes --cleanup-tag
+            done
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()

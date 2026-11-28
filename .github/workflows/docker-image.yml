@@ -2,14 +2,25 @@ name: docker-image
 
 # ImmortalWrt rootfs for an arm64 OpenWrt docker container, pushed to
 # ghcr.io. Packages missing from the feeds (docker/sources.txt) are built
-# with the SDK, everything is assembled with the ImageBuilder.
+# with the SDK, everything is assembled with the ImageBuilder. The versions
+# come from versions.env; auto-update.yml builds versions-next.env (a newer
+# ImmortalWrt branch) as a test image, tagged test-* and never latest.
+
+# auto-update.yml finds the last build of each versions file by this title
+run-name: docker-image (${{ inputs.versions_file || 'versions.env' }})
 
 on:
   workflow_dispatch:
+    inputs:
+      versions_file:
+        type: choice
+        options: [versions.env, versions-next.env]
+        default: versions.env
   push:
     branches: [main]
     paths:
       - ".github/workflows/docker-image.yml"
+      - "versions.env"
       - "docker/**"
       - "patches/**"
 
@@ -17,21 +28,14 @@ permissions:
   contents: read
 
 concurrency:
-  group: docker-image
+  group: docker-image-${{ inputs.versions_file || 'versions.env' }}
   cancel-in-progress: true
 
 env:
-  RELEASE: "25.12.2"
-  DL: https://downloads.immortalwrt.org/releases/25.12.2/targets/armsr/armv8
-  SDK: immortalwrt-sdk-25.12.2-armsr-armv8_gcc-14.3.0_musl.Linux-x86_64
-  SDK_SHA256: 8e2891ff99f12d1a9b7164c62064c3d47a1e766e04c3ad3f9f3d0189731f8c7d
-  # not IB: make reads that from the environment, and the ImageBuilder
-  # recipes break when it is set
-  IB_NAME: immortalwrt-imagebuilder-25.12.2-armsr-armv8.Linux-x86_64
-  IB_SHA256: a8c1ffda15e7d79854ff4afd711da3e7224e84945c79f03d80fc6cf48727cb9c
-  # AdGuard Home core shipped with luci-app-adguardhome-classic
-  AGH_VERSION: v1.0.0
-  AGH_SHA256: f5c331d29580726179d3119c0464ddacd6fdcd487a0a9e108532f58fdf772604
+  # RELEASE, DL, SDK, IB_NAME (not IB: make reads that from the environment,
+  # and the ImageBuilder recipes break when it is set), AGH_VERSION (the AdGuard
+  # Home core shipped with luci-app-adguardhome-classic) and their hashes
+  VERSIONS_FILE: ${{ inputs.versions_file || 'versions.env' }}
   IMAGE: ghcr.io/${{ github.repository }}
 
 jobs:
@@ -39,6 +43,9 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Load versions
+        run: grep -E '^[A-Z][A-Z0-9_]*=' "$VERSIONS_FILE" | tee -a "$GITHUB_ENV"
 
       - name: Install build dependencies
         run: |
@@ -140,6 +147,9 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      - name: Load versions
+        run: grep -E '^[A-Z][A-Z0-9_]*=' "$VERSIONS_FILE" | tee -a "$GITHUB_ENV"
+
       - name: Download ImageBuilder
         run: |
           set -euo pipefail
@@ -202,14 +212,42 @@ jobs:
           echo "$GH_TOKEN" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
           image="$(echo "$IMAGE" | tr '[:upper:]' '[:lower:]')"
           tag="${RELEASE}-$(date -u +%Y%m%d)-${GITHUB_SHA::7}"
+          if [ "$VERSIONS_FILE" = versions.env ]; then
+            tags=(-t "${image}:${tag}" -t "${image}:${RELEASE}" -t "${image}:latest")
+          else
+            tag="test-${tag}"
+            tags=(-t "${image}:${tag}")
+          fi
           docker buildx build docker/ \
             --platform linux/arm64 \
             --provenance=false \
             --label "org.opencontainers.image.source=https://github.com/${{ github.repository }}" \
             --label "org.opencontainers.image.version=${tag}" \
-            -t "${image}:${tag}" -t "${image}:${RELEASE}" -t "${image}:latest" \
+            "${tags[@]}" \
             --push
-          echo "- image: \`${image}:${tag}\` (also \`${RELEASE}\`, \`latest\`)" >> "$GITHUB_STEP_SUMMARY"
+          echo "- image: \`${image}:${tag}\` (${VERSIONS_FILE})" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Remove old images
+        if: github.ref == 'refs/heads/main'
+        # needs the Admin role for this repository in the package settings
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          KEEP: 6
+        run: |
+          set -euo pipefail
+          pkg="$(echo "${GITHUB_REPOSITORY#*/}" | tr '[:upper:]' '[:lower:]')"
+          api="users/${GITHUB_REPOSITORY_OWNER}/packages/container/${pkg}/versions"
+          # newest first; keep the newest KEEP tagged versions and anything tagged
+          # latest or with a release tag, delete the rest (older and untagged)
+          gh api --paginate "$api" --jq '.[] | [.id, ((.metadata.container.tags // []) | join(","))] | @tsv' > versions.tsv
+          kept=0
+          while IFS=$'\t' read -r id tags; do
+            if [[ ",$tags," =~ ,(latest|[0-9]+\.[0-9]+\.[0-9]+), ]]; then continue; fi
+            if [ -n "$tags" ] && [ "$kept" -lt "$KEEP" ]; then kept=$((kept + 1)); continue; fi
+            echo "delete $id ${tags:-<untagged>}"
+            gh api -X DELETE "$api/$id" --silent
+          done < versions.tsv
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
