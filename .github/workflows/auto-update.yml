@@ -29,8 +29,6 @@ jobs:
     runs-on: ubuntu-24.04
     env:
       GH_TOKEN: ${{ github.token }}
-      NOTES: ${{ runner.temp }}/notes.md
-      PROBLEMS: ${{ runner.temp }}/problems.txt
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -38,7 +36,11 @@ jobs:
           fetch-depth: 0
 
       - name: Check upstream
-        run: scripts/update-versions.sh
+        run: |
+          # the runner context is not available in the job env
+          echo "NOTES=$RUNNER_TEMP/notes.md" >> "$GITHUB_ENV"
+          echo "PROBLEMS=$RUNNER_TEMP/problems.txt" >> "$GITHUB_ENV"
+          NOTES="$RUNNER_TEMP/notes.md" PROBLEMS="$RUNNER_TEMP/problems.txt" scripts/update-versions.sh
 
       - name: Commit
         run: |
